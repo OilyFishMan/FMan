@@ -17,29 +17,48 @@ struct state
 {
     size_t screen_width, screen_height;
     size_t cursor_y;
+    size_t scroll_y;
 
     struct fs fs;
 };
 
-int state_init(struct state* state, char error_message[MAX_ERROR_MSG_LEN])
+bool state_init(struct state* state, char* error_message)
 {
     state->cursor_y = 0;
 
     state->fs = fs_default;
 
     if (!fs_init(&state->fs, error_message)) {
-        return false;
+        goto cleanup;
     }
 
-    getmaxyx(stdscr, state->screen_height, state->screen_width);
+    state->screen_width = 100;
+    state->screen_height = 100;
 
     return true;
+
+//remember to add this back in later
+//
+//cleanup_fs:
+//    fs_dealloc(&state->fs);
+
+cleanup:
+    return false;
+}
+
+void state_dealloc(struct state* state)
+{
+    fs_dealloc(&state->fs);
 }
 
 void state_move_up(struct state* state)
 {
     if (state->cursor_y > 0) {
         --state->cursor_y;
+    }
+
+    if (state->cursor_y == state->scroll_y - 1) {
+        --state->scroll_y;
     }
 }
 
@@ -48,9 +67,13 @@ void state_move_down(struct state* state)
     if (state->cursor_y + 1 < state->fs.objects_len) {
         ++state->cursor_y;
     }
+
+    if (state->cursor_y - state->scroll_y + 1 > state->screen_height - 1) {
+        ++state->scroll_y;
+    }
 }
 
-int state_interact(struct state* state, char error_message[MAX_ERROR_MSG_LEN])
+bool state_interact(struct state* state, char* error_message)
 {
     struct fs_object object = state->fs.objects[state->cursor_y];
 
@@ -59,7 +82,7 @@ int state_interact(struct state* state, char error_message[MAX_ERROR_MSG_LEN])
         return false;
     }
 
-    if (!fs_chdir(&state->fs, object.path, error_message)) {
+    if (!fs_chdir(&state->fs, object.real_path, error_message)) {
         return false;
     }
 
@@ -72,26 +95,37 @@ int state_interact(struct state* state, char error_message[MAX_ERROR_MSG_LEN])
     return true;
 }
 
+void state_public_update(struct state* state)
+{
+    getmaxyx(stdscr, state->screen_height, state->screen_width);
+}
+
+void state_private_update(struct state* state)
+{
+    if (state->cursor_y - state->scroll_y > state->screen_height - 1) {
+        state->scroll_y = state->cursor_y - state->screen_height / 2;
+    }
+}
+
 void state_render(struct state* state)
 {
-    clear();
+    erase();
 
-    char file_buf[PATH_MAX];
+    mvprintw(0, 0, "You are in [%s]", state->fs.path);
 
-    realpath(".", file_buf);
+    for (size_t i = 0; i + 1 < state->screen_height; ++i) {
+        if (i + state->scroll_y < state->fs.objects_len) {
+            struct fs_object object = state->fs.objects[i + state->scroll_y];
 
-    mvprintw(0, 0, "You are in [%s]", file_buf);
-
-    const size_t fs_window_height = state->screen_height - 1;
-    const size_t top_fs_object = state->cursor_y / fs_window_height * fs_window_height;
-    const size_t screen_y = state->cursor_y % fs_window_height;
-
-    for (size_t i = 0; i < fs_window_height; ++i) {
-        struct fs_object object = state->fs.objects[i + top_fs_object];
-        mvprintw((int) i + 1, 0, "%s%s", object.path, object.type == E_object_folder ? "/" : "");
+            mvprintw((int) i + 1, 0, "%s%s", object.path, object.type == E_object_folder ? "/" : "");
+        } else {
+            mvprintw((int) i + 1, 0, "~");
+        }
     }
 
-    move(screen_y + 1, 0);
+    move(state->cursor_y - state->scroll_y + 1, 0);
+
+    refresh();
 }
 
 int main(void)
@@ -104,23 +138,27 @@ int main(void)
     cbreak();
     noecho();
     keypad(stdscr, true);
+    timeout(100);
     set_escdelay(100);
 
     struct state state;
 
-    if (state_init(&state, error_message) != 0) {
+    if (!state_init(&state, error_message)) {
         exit_success = false;
-        goto loop_end;
+        goto cleanup;
     }
 
     for (;;) {
+        state_public_update(&state);
+        state_private_update(&state);
+
         state_render(&state);
 
         int ch = getch();
 
         switch (ch) {
             case KEY_ESCAPE: {
-                goto loop_end;
+                goto cleanup_state;
                 break;
             }
 
@@ -135,9 +173,9 @@ int main(void)
             }
 
             case '\n': {
-                if (state_interact(&state, error_message) != 0) {
+                if (!state_interact(&state, error_message)) {
                     exit_success = false;
-                    goto loop_end;
+                    goto cleanup_state;
                 }
                 break;
             }
@@ -147,8 +185,12 @@ int main(void)
             }
         }
     }
-loop_end:
 
+
+cleanup_state:
+    state_dealloc(&state);
+
+cleanup:
     endwin();
 
     if (exit_success) {
@@ -156,6 +198,5 @@ loop_end:
     }
 
     fprintf(stderr, "the program crashed:\t`%s`\n", error_message);
-
     return EXIT_FAILURE;
 }

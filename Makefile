@@ -8,24 +8,26 @@ LIBS    = -lm
 LIBS    += `pkg-config ncurses --cflags --libs`
 WARN    = -Wall -Wextra -Werror
 OPT     ?= 0
-CFLAGS  =  -Ilib -O$(OPT) $(WARN)
+CFLAGS  = -Ilib -O$(OPT) $(WARN)
 
-.PHONY: all build run clean
+.PHONY: build run clean
 
-all:
-	mkdir -p build
+build_folder:
+	@mkdir -p build
 
-build: $(TARGET)
+build: build_folder $(TARGET)
 
-run: $(TARGET)
+run: $(TARGET) build
 	./$(TARGET)
 
 $(TARGET): $(OBJECTS)
-	@[[ ! -f $(TARGET) ]] || rm $(TARGET)
+	@if [[ -f $(TARGET) ]]; then\
+		rm $(TARGET);\
+	fi
 	$(CC) $(CFLAGS) $(LIBS) -o $(TARGET) $(OBJECTS)
 
 build/%.o: src/%.c
 	$(CC) -c $(CFLAGS) -o $@ $^
 
 clean:
-	@[[ ! -f build ]] || rm -r build
+	rm -r build

@@ -19,6 +19,7 @@ enum fs_object_enum
 struct fs_object
 {
     char *path;
+    char *real_path;
     enum fs_object_enum type;
 };
 
@@ -32,8 +33,9 @@ struct fs
 
 #define fs_default ((struct fs) { .path = {0}, .objects_len = 0, .objects = {0} })
 
-bool fs_init(struct fs* fs, char error_message[MAX_ERROR_MSG_LEN]);
-bool fs_reload(struct fs* fs, char error_message[MAX_ERROR_MSG_LEN]);
-bool fs_chdir(struct fs* fs, char path[PATH_MAX], char error_message[MAX_ERROR_MSG_LEN]);
+bool fs_init(struct fs* fs, char* error_message);
+void fs_dealloc(struct fs* fs);
+bool fs_reload(struct fs* fs, char* error_message);
+bool fs_chdir(struct fs* fs, char* path, char* error_message);
 
 #endif // FS_H_
