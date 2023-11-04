@@ -91,6 +91,7 @@ bool state_interact(struct state* state, char* error_message)
     }
 
     state->cursor_y = 0;
+    state->scroll_y = 0;
 
     return true;
 }
