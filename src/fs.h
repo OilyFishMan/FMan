@@ -8,7 +8,7 @@
 #include <limits.h>
 
 // arbitrary number
-#define MAX_FS_OBJECTS 512
+#define MAX_FS_OBJECTS 4096
 
 enum fs_object_enum
 {
@@ -18,8 +18,12 @@ enum fs_object_enum
 
 struct fs_object
 {
-    char *path;
-    char *real_path;
+    // the actual strings need to be null terminated (because lstat)
+    // so there's no point storing their lengths here
+    // instead, we store relative pointers to the arena
+    size_t path_idx;
+    size_t real_path_idx;
+
     enum fs_object_enum type;
 };
 
@@ -29,9 +33,13 @@ struct fs
 
     size_t objects_len;
     struct fs_object objects[MAX_FS_OBJECTS];
+
+    size_t path_arena_used;
+    size_t path_arena_capacity;
+    char*  path_arena;
 };
 
-#define fs_default ((struct fs) { .path = {0}, .objects_len = 0, .objects = {0} })
+#define fs_default ((struct fs) {0})
 
 bool fs_init(struct fs* fs, char* error_message);
 void fs_dealloc(struct fs* fs);

@@ -4,8 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 #include <stdbool.h>
+#include <assert.h>
+#include <limits.h>
 #include <curses.h>
 
 #define KEY_ESCAPE 27
@@ -24,18 +25,20 @@ struct state
 
 bool state_init(struct state* state, char* error_message)
 {
-    state->cursor_y = 0;
-
-    state->fs = fs_default;
-
-    if (!fs_init(&state->fs, error_message)) {
-        goto cleanup;
-    }
+    bool exit_success = true;
 
     state->screen_width = 100;
     state->screen_height = 100;
 
-    return true;
+    state->cursor_y = 0;
+    state->scroll_y = 0;
+
+    state->fs = fs_default;
+
+    if (!fs_init(&state->fs, error_message)) {
+        exit_success = false;
+        goto cleanup;
+    }
 
 //remember to add this back in later
 //
@@ -43,7 +46,12 @@ bool state_init(struct state* state, char* error_message)
 //    fs_dealloc(&state->fs);
 
 cleanup:
-    return false;
+    return exit_success;
+}
+
+size_t state_fs_window_height(struct state* state)
+{
+    return state->screen_height - 1;
 }
 
 void state_dealloc(struct state* state)
@@ -68,8 +76,38 @@ void state_move_down(struct state* state)
         ++state->cursor_y;
     }
 
-    if (state->cursor_y - state->scroll_y + 1 > state->screen_height - 1) {
+    if (state->cursor_y - state->scroll_y + 1 > state_fs_window_height(state)) {
         ++state->scroll_y;
+    }
+}
+
+void state_move_screen_up(struct state* state)
+{
+    if (state->cursor_y + 1 >= state->screen_height) {
+        state->cursor_y -= state_fs_window_height(state);
+    } else {
+        state->cursor_y = 0;
+    }
+
+    state->scroll_y = state->cursor_y;
+}
+
+void state_move_screen_down(struct state* state)
+{
+    // compilers are smart, they can do basic math simplifications
+    // so i will not distribute these pluses, and leave it unoptimized
+    // for readability and easy refactoring in the future
+    if (state->fs.objects_len >= state->screen_height
+     && state->cursor_y + (state_fs_window_height(state)) <= state->fs.objects_len - 1) {
+        state->cursor_y += state_fs_window_height(state);
+    } else {
+        state->cursor_y = state->fs.objects_len - 1;
+    }
+
+    if (state->cursor_y >= (state_fs_window_height(state))) {
+        state->scroll_y = state->cursor_y - (state_fs_window_height(state)) + 1;
+    } else {
+        state->scroll_y = 0;
     }
 }
 
@@ -82,7 +120,7 @@ bool state_interact(struct state* state, char* error_message)
         return false;
     }
 
-    if (!fs_chdir(&state->fs, object.real_path, error_message)) {
+    if (!fs_chdir(&state->fs, &state->fs.path_arena[object.real_path_idx], error_message)) {
         return false;
     }
 
@@ -103,7 +141,7 @@ void state_public_update(struct state* state)
 
 void state_private_update(struct state* state)
 {
-    if (state->cursor_y - state->scroll_y > state->screen_height - 1) {
+    if (state->cursor_y - state->scroll_y > state_fs_window_height(state)) {
         state->scroll_y = state->cursor_y - state->screen_height / 2;
     }
 }
@@ -118,7 +156,7 @@ void state_render(struct state* state)
         if (i + state->scroll_y < state->fs.objects_len) {
             struct fs_object object = state->fs.objects[i + state->scroll_y];
 
-            mvprintw((int) i + 1, 0, "%s%s", object.path, object.type == E_object_folder ? "/" : "");
+            mvprintw((int) i + 1, 0, "%s%s", &state->fs.path_arena[object.path_idx], object.type == E_object_folder ? "/" : "");
         } else {
             mvprintw((int) i + 1, 0, "~");
         }
@@ -142,7 +180,7 @@ int main(void)
     timeout(100);
     set_escdelay(100);
 
-    struct state state;
+    struct state state = {0};
 
     if (!state_init(&state, error_message)) {
         exit_success = false;
@@ -160,7 +198,6 @@ int main(void)
         switch (ch) {
             case KEY_ESCAPE: {
                 goto cleanup_state;
-                break;
             }
 
             case KEY_UP: {
@@ -170,6 +207,16 @@ int main(void)
 
             case KEY_DOWN: {
                 state_move_down(&state);
+                break;
+            }
+
+            case 'w': {
+                state_move_screen_up(&state);
+                break;
+            }
+
+            case 's': {
+                state_move_screen_down(&state);
                 break;
             }
 
@@ -195,6 +242,10 @@ cleanup:
     endwin();
 
     if (exit_success) {
+        fprintf(stderr, "the program exited successfully.\n");
+
+        assert(strlen(error_message) == 0);
+
         return EXIT_SUCCESS;
     }
 

@@ -9,33 +9,47 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-void fs_object_dealloc(struct fs_object* object)
-{
-    free(object->path);
-    free(object->real_path);
-}
+#include <curses.h>
 
 bool fs_init(struct fs* fs, char* error_message)
 {
     fs->objects_len = 0;
 
-    if (realpath(".", fs->path) == NULL) {
-        strcpy(error_message, "realpath failed");
-        return false;
+    fs->path_arena_used = 0;
+    fs->path_arena_capacity = 0;
+    fs->path_arena = malloc(sizeof(*fs->path_arena) * fs->path_arena_capacity);
+
+    if (fs->path_arena == NULL) {
+        strcpy(error_message, "malloc failed");
+        goto failure;
+    }
+
+    if (!fs_chdir(fs, ".", error_message)) {
+        goto failure_path_arena;
     }
 
     if (!fs_reload(fs, error_message)) {
-        return false;
+        goto failure_path_arena;
     }
 
     return true;
+
+failure_path_arena:
+    if (fs->path_arena != NULL) {
+        free(fs->path_arena);
+        fs->path_arena = NULL;
+    }
+
+failure:
+    return false;
 }
 
 void fs_dealloc(struct fs* fs)
 {
-    for (size_t i = 0; i < fs->objects_len; ++i) {
-        fs_object_dealloc(&fs->objects[i]);
+    // in case of a nasty allocation error we can't recover from.
+    if (fs->path_arena != NULL) {
+        free(fs->path_arena);
+        fs->path_arena = NULL;
     }
 }
 
@@ -43,17 +57,8 @@ bool fs_reload(struct fs* fs, char* error_message)
 {
     bool exit_success = true;
 
-    for (size_t i = 0; i < fs->objects_len; ++i) {
-        fs_object_dealloc(&fs->objects[i]);
-    }
-
     fs->objects_len = 0;
-
-    //static int i = 0;
-    //if (i++ == 4) {
-    //    fprintf(stderr, "[        %s      ]\n", fs->path);
-    //    exit(1);
-    //}
+    fs->path_arena_used = 0;
 
     DIR* srcdir = opendir(fs->path);
 
@@ -63,53 +68,60 @@ bool fs_reload(struct fs* fs, char* error_message)
         goto cleanup;
     }
 
-    for (;;) {
-        struct dirent* dent = readdir(srcdir);
+    struct dirent* entry;
 
-        if (dent == NULL) {
-            break;
-        }
-
-        struct stat st;
-
-        if (fstatat(dirfd(srcdir), dent->d_name, &st, 0) < 0) {
-            strcpy(error_message, "fstat failed");
-            exit_success = false;
-            goto cleanup;
-        }
+    while ((entry = readdir(srcdir)) != NULL) {
+        const size_t prev_used = fs->path_arena_used;
 
         struct fs_object* object = &fs->objects[fs->objects_len];
 
-        object->real_path = malloc(sizeof(*object->real_path) * (strlen(fs->path) + 1 + strlen(dent->d_name) + 1));
+        object->real_path_idx = fs->path_arena_used;
 
-        if (object->real_path == NULL) {
-            strcpy(error_message, "malloc failed");
-            exit_success = false;
-            goto cleanup_dir;
+        fs->path_arena_used += strlen(fs->path) + 1 + strlen(entry->d_name) + 1;
+
+        bool have_to_realloc = false;
+
+        while (fs->path_arena_capacity <= fs->path_arena_used) {
+            fs->path_arena_capacity += fs->path_arena_capacity / 2 + 1;
+            have_to_realloc = true;
         }
 
-        strcpy(object->real_path, fs->path);
-        strcat(object->real_path, "/");
-        strcat(object->real_path, dent->d_name);
+        if (have_to_realloc) {
+            char* new_path_arena = realloc(fs->path_arena, sizeof(*fs->path_arena) * fs->path_arena_capacity);
 
-        object->real_path = realpath(object->real_path, NULL);
+            if (new_path_arena == NULL) {
+                // we are NOT calling fs_dealloc here
+                // because this code may not end up being equivalent
+                // to that function in the future.
+                // for instance, we could have multiple allocations,
+                // some of which we may not want to free,
+                // or OS objects we want to keep alive even afterwards.
+                free(fs->path_arena);
+                fs->path_arena = NULL;
 
-        if (object->real_path == NULL) {
-            strcpy(error_message, "realpath failed");
-            exit_success = false;
-            goto cleanup_dir;
+                strcpy(error_message, "realloc failed");
+                exit_success = false;
+                goto cleanup_srcdir;
+            }
+
+            fs->path_arena = new_path_arena;
         }
 
-        object->path = malloc(sizeof(*object->path) * (strlen(dent->d_name) + 1));
+        // breakpoint
 
-        if (object->path == NULL) {
-            free(object->real_path);
-            strcpy(error_message, "malloc failed");
-            exit_success = false;
-            goto cleanup_dir;
+        strcpy(&fs->path_arena[object->real_path_idx], fs->path);
+        strcat(&fs->path_arena[object->real_path_idx], "/");
+
+        object->path_idx = object->real_path_idx + strlen(fs->path) + 1;
+
+        strcat(&fs->path_arena[object->path_idx], entry->d_name);
+
+        struct stat st;
+
+        if (stat(&fs->path_arena[object->real_path_idx], &st) < 0) {
+            fs->path_arena_used = prev_used;
+            continue;
         }
-
-        strcpy(object->path, dent->d_name);
 
         if (S_ISDIR(st.st_mode)) {
             object->type = E_object_folder;
@@ -120,7 +132,7 @@ bool fs_reload(struct fs* fs, char* error_message)
         ++fs->objects_len;
     }
     
-cleanup_dir:
+cleanup_srcdir:
     closedir(srcdir);
 
 cleanup:
