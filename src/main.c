@@ -141,8 +141,8 @@ void state_public_update(struct state* state)
 
 void state_private_update(struct state* state)
 {
-    if (state->cursor_y - state->scroll_y > state_fs_window_height(state)) {
-        state->scroll_y = state->cursor_y - state->screen_height / 2;
+    if (state->cursor_y - state->scroll_y >= state_fs_window_height(state)) {
+        state->scroll_y = state->cursor_y - state_fs_window_height(state) + 1;
     }
 }
 
