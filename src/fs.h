@@ -6,33 +6,35 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limits.h>
+#include <time.h>
 
 // arbitrary number
-#define MAX_FS_OBJECTS 4096
+#define MAX_FS_ENTRIES 4096
 
-enum fs_object_enum
+enum fs_entry_enum
 {
-    E_object_file,
-    E_object_folder,
+    E_entry_file,
+    E_entry_folder,
 };
 
-struct fs_object
+struct fs_entry
 {
-    // the actual strings need to be null terminated (because lstat)
-    // so there's no point storing their lengths here
-    // instead, we store relative pointers to the arena
+    enum fs_entry_enum type;
+
+    // The actual strings need to be null terminated (because stat)
+    // so there's no point storing their lengths here.
     size_t path_idx;
     size_t real_path_idx;
 
-    enum fs_object_enum type;
+    time_t last_updated;
 };
 
 struct fs
 {
     char path[PATH_MAX];
 
-    size_t objects_len;
-    struct fs_object objects[MAX_FS_OBJECTS];
+    size_t entries_len;
+    struct fs_entry entries[MAX_FS_ENTRIES];
 
     size_t path_arena_used;
     size_t path_arena_capacity;

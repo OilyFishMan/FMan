@@ -1,6 +1,7 @@
 #include "fimale.h"
 #include "fs.h"
 
+#define __STDC_WANT_LIB_EXT1__ 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <curses.h>
+#include <time.h>
 
 #define KEY_ESCAPE 27
 
@@ -72,7 +74,7 @@ void state_move_up(struct state* state)
 
 void state_move_down(struct state* state)
 {
-    if (state->cursor_y + 1 < state->fs.objects_len) {
+    if (state->cursor_y + 1 < state->fs.entries_len) {
         ++state->cursor_y;
     }
 
@@ -97,11 +99,11 @@ void state_move_screen_down(struct state* state)
     // compilers are smart, they can do basic math simplifications
     // so i will not distribute these pluses, and leave it unoptimized
     // for readability and easy refactoring in the future
-    if (state->fs.objects_len >= state->screen_height
-     && state->cursor_y + (state_fs_window_height(state)) <= state->fs.objects_len - 1) {
+    if (state->fs.entries_len >= state->screen_height
+     && state->cursor_y + (state_fs_window_height(state)) <= state->fs.entries_len - 1) {
         state->cursor_y += state_fs_window_height(state);
     } else {
-        state->cursor_y = state->fs.objects_len - 1;
+        state->cursor_y = state->fs.entries_len - 1;
     }
 
     if (state->cursor_y >= (state_fs_window_height(state))) {
@@ -113,14 +115,14 @@ void state_move_screen_down(struct state* state)
 
 bool state_interact(struct state* state, char* error_message)
 {
-    struct fs_object object = state->fs.objects[state->cursor_y];
+    struct fs_entry entry = state->fs.entries[state->cursor_y];
 
-    if (object.type != E_object_folder) {
+    if (entry.type != E_entry_folder) {
         strcpy(error_message, "TODO: interacting with files is not implemented yet");
         return false;
     }
 
-    if (!fs_chdir(&state->fs, &state->fs.path_arena[object.real_path_idx], error_message)) {
+    if (!fs_chdir(&state->fs, &state->fs.path_arena[entry.real_path_idx], error_message)) {
         return false;
     }
 
@@ -152,14 +154,43 @@ void state_render(struct state* state)
 
     mvprintw(0, 0, "You are in [%s]", state->fs.path);
 
-    for (size_t i = 0; i + 1 < state->screen_height; ++i) {
-        if (i + state->scroll_y < state->fs.objects_len) {
-            struct fs_object object = state->fs.objects[i + state->scroll_y];
+    for (size_t i = 0; i + 1 < state->screen_height && i + state->scroll_y < state->fs.entries_len; ++i) {
+        struct fs_entry* entry = &state->fs.entries[i + state->scroll_y];
 
-            mvprintw((int) i + 1, 0, "%s%s", &state->fs.path_arena[object.path_idx], object.type == E_object_folder ? "/" : "");
+        // remember, this pointer is UB whenever we reload the filesystem.
+        const char* path_str = &state->fs.path_arena[entry->path_idx];
+        const size_t path_str_len = strlen(path_str);
+
+        const char* folder_end = entry->type == E_entry_folder ? "/" : "";
+        const size_t folder_end_len = strlen(folder_end);
+
+        const char* dots = "..";
+        const size_t dots_len = strlen(dots); // kind of pointless (shrug)
+
+        const size_t name_display_len = 20;
+
+        if (path_str_len + folder_end_len <= name_display_len) {
+            mvprintw( (int) i + 1, 0, "%s%s%.*s"
+                    , path_str
+                    , folder_end
+                    , (int) (name_display_len - path_str_len - folder_end_len), "");
         } else {
-            mvprintw((int) i + 1, 0, "~");
+            mvprintw( (int) i + 1, 0, "%.*s%s%s"
+                    , (int) (name_display_len - folder_end_len - dots_len)
+                    , path_str
+                    , dots
+                    , folder_end);
         }
+
+        struct tm broken_up_time;
+        char time_fmt[128];
+        asctime_r(gmtime_r(&entry->last_updated, &broken_up_time), time_fmt);
+
+        mvprintw((int) i + 1, name_display_len + 1, "%s", time_fmt);
+    }
+
+    for (size_t j = state->fs.entries_len - state->scroll_y; j < state->screen_height; ++j) {
+        mvprintw((int) j + 1, 0, "~");
     }
 
     move(state->cursor_y - state->scroll_y + 1, 0);
@@ -177,7 +208,7 @@ int main(void)
     cbreak();
     noecho();
     keypad(stdscr, true);
-    timeout(100);
+    nodelay(stdscr, true);
     set_escdelay(100);
 
     struct state state = {0};

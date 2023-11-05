@@ -13,7 +13,7 @@
 
 bool fs_init(struct fs* fs, char* error_message)
 {
-    fs->objects_len = 0;
+    fs->entries_len = 0;
 
     fs->path_arena_used = 0;
     fs->path_arena_capacity = 0;
@@ -57,7 +57,7 @@ bool fs_reload(struct fs* fs, char* error_message)
 {
     bool exit_success = true;
 
-    fs->objects_len = 0;
+    fs->entries_len = 0;
     fs->path_arena_used = 0;
 
     DIR* srcdir = opendir(fs->path);
@@ -68,16 +68,20 @@ bool fs_reload(struct fs* fs, char* error_message)
         goto cleanup;
     }
 
-    struct dirent* entry;
+    struct dirent* dent;
 
-    while ((entry = readdir(srcdir)) != NULL) {
-        const size_t prev_used = fs->path_arena_used;
+    while ((dent = readdir(srcdir)) != NULL) {
+        struct stat st;
 
-        struct fs_object* object = &fs->objects[fs->objects_len];
+        if (fstatat(dirfd(srcdir), dent->d_name, &st, 0) < 0) {
+            continue;
+        }
 
-        object->real_path_idx = fs->path_arena_used;
+        struct fs_entry* entry = &fs->entries[fs->entries_len];
 
-        fs->path_arena_used += strlen(fs->path) + 1 + strlen(entry->d_name) + 1;
+        entry->real_path_idx = fs->path_arena_used;
+
+        fs->path_arena_used += strlen(fs->path) + 1 + strlen(dent->d_name) + 1;
 
         bool have_to_realloc = false;
 
@@ -95,7 +99,7 @@ bool fs_reload(struct fs* fs, char* error_message)
                 // to that function in the future.
                 // for instance, we could have multiple allocations,
                 // some of which we may not want to free,
-                // or OS objects we want to keep alive even afterwards.
+                // or OS entries we want to keep alive even afterwards.
                 free(fs->path_arena);
                 fs->path_arena = NULL;
 
@@ -107,29 +111,22 @@ bool fs_reload(struct fs* fs, char* error_message)
             fs->path_arena = new_path_arena;
         }
 
-        // breakpoint
+        strcpy(&fs->path_arena[entry->real_path_idx], fs->path);
+        strcat(&fs->path_arena[entry->real_path_idx], "/");
 
-        strcpy(&fs->path_arena[object->real_path_idx], fs->path);
-        strcat(&fs->path_arena[object->real_path_idx], "/");
+        entry->path_idx = entry->real_path_idx + strlen(fs->path) + 1;
 
-        object->path_idx = object->real_path_idx + strlen(fs->path) + 1;
-
-        strcat(&fs->path_arena[object->path_idx], entry->d_name);
-
-        struct stat st;
-
-        if (stat(&fs->path_arena[object->real_path_idx], &st) < 0) {
-            fs->path_arena_used = prev_used;
-            continue;
-        }
+        strcat(&fs->path_arena[entry->path_idx], dent->d_name);
 
         if (S_ISDIR(st.st_mode)) {
-            object->type = E_object_folder;
+            entry->type = E_entry_folder;
         } else {
-            object->type = E_object_file;
+            entry->type = E_entry_file;
         }
 
-        ++fs->objects_len;
+        entry->last_updated = st.st_mtime;
+
+        ++fs->entries_len;
     }
     
 cleanup_srcdir:
