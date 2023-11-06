@@ -53,7 +53,7 @@ cleanup:
 
 size_t state_fs_window_height(struct state* state)
 {
-    return state->screen_height - 1;
+    return state->screen_height - 2;
 }
 
 void state_dealloc(struct state* state)
@@ -126,10 +126,6 @@ bool state_interact(struct state* state, char* error_message)
         return false;
     }
 
-    if (!fs_reload(&state->fs, error_message)) {
-        return false;
-    }
-
     state->cursor_y = 0;
     state->scroll_y = 0;
 
@@ -141,23 +137,37 @@ void state_public_update(struct state* state)
     getmaxyx(stdscr, state->screen_height, state->screen_width);
 }
 
-void state_private_update(struct state* state)
+bool state_private_update(struct state* state, char* error_message)
 {
     if (state->cursor_y - state->scroll_y >= state_fs_window_height(state)) {
         state->scroll_y = state->cursor_y - state_fs_window_height(state) + 1;
     }
+
+    if (!fs_update(&state->fs, error_message)) {
+        return false;
+    }
+
+    return true;
 }
 
 void state_render(struct state* state)
 {
+    const size_t fs_window_start = state->screen_height - state_fs_window_height(state);
+
     erase();
 
-    mvprintw(0, 0, "You are in [%s]", state->fs.path);
+    struct tm broken_up_time;
+    char time_fmt[128];
+
+    asctime_r(gmtime_r(&state->fs.last_updated, &broken_up_time), time_fmt);
+
+    mvprintw(0, 0, "[folder name: %s]", state->fs.path);
+    mvprintw(1, 0, "[last updated: %.*s]", (int) (strlen(time_fmt) - 1), time_fmt);
 
     for (size_t i = 0; i + 1 < state->screen_height && i + state->scroll_y < state->fs.entries_len; ++i) {
         struct fs_entry* entry = &state->fs.entries[i + state->scroll_y];
 
-        // remember, this pointer is UB whenever we reload the filesystem.
+        // Remember, this pointer is UB whenever we reload the filesystem.
         const char* path_str = &state->fs.path_arena[entry->path_idx];
         const size_t path_str_len = strlen(path_str);
 
@@ -170,30 +180,28 @@ void state_render(struct state* state)
         const size_t name_display_len = 20;
 
         if (path_str_len + folder_end_len <= name_display_len) {
-            mvprintw( (int) i + 1, 0, "%s%s%.*s"
+            mvprintw( (int) (i + fs_window_start), 0, "%s%s%.*s"
                     , path_str
                     , folder_end
                     , (int) (name_display_len - path_str_len - folder_end_len), "");
         } else {
-            mvprintw( (int) i + 1, 0, "%.*s%s%s"
+            mvprintw( (int) (i + fs_window_start), 0, "%.*s%s%s"
                     , (int) (name_display_len - folder_end_len - dots_len)
                     , path_str
                     , dots
                     , folder_end);
         }
 
-        struct tm broken_up_time;
-        char time_fmt[128];
         asctime_r(gmtime_r(&entry->last_updated, &broken_up_time), time_fmt);
 
-        mvprintw((int) i + 1, name_display_len + 1, "%s", time_fmt);
+        mvprintw((int) (i + fs_window_start), name_display_len + 1, "%s", time_fmt);
     }
 
     for (size_t j = state->fs.entries_len - state->scroll_y; j < state->screen_height; ++j) {
-        mvprintw((int) j + 1, 0, "~");
+        mvprintw((int) (j + fs_window_start), 0, "~");
     }
 
-    move(state->cursor_y - state->scroll_y + 1, 0);
+    move(state->cursor_y - state->scroll_y + fs_window_start, 0);
 
     refresh();
 }
@@ -208,7 +216,7 @@ int main(void)
     cbreak();
     noecho();
     keypad(stdscr, true);
-    nodelay(stdscr, true);
+    timeout(100);
     set_escdelay(100);
 
     struct state state = {0};
@@ -220,7 +228,11 @@ int main(void)
 
     for (;;) {
         state_public_update(&state);
-        state_private_update(&state);
+
+        if (!state_private_update(&state, error_message)) {
+            exit_success = false;
+            goto cleanup_state;
+        }
 
         state_render(&state);
 

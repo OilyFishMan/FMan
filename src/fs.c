@@ -13,6 +13,10 @@
 
 bool fs_init(struct fs* fs, char* error_message)
 {
+    memset(fs->path, 0, PATH_MAX);
+
+    fs->last_updated = (time_t) 0;
+
     fs->entries_len = 0;
 
     fs->path_arena_used = 0;
@@ -25,10 +29,6 @@ bool fs_init(struct fs* fs, char* error_message)
     }
 
     if (!fs_chdir(fs, ".", error_message)) {
-        goto failure_path_arena;
-    }
-
-    if (!fs_reload(fs, error_message)) {
         goto failure_path_arena;
     }
 
@@ -124,7 +124,7 @@ bool fs_reload(struct fs* fs, char* error_message)
             entry->type = E_entry_file;
         }
 
-        entry->last_updated = st.st_mtime;
+        entry->last_updated = st.st_atime;
 
         ++fs->entries_len;
     }
@@ -134,6 +134,24 @@ cleanup_srcdir:
 
 cleanup:
     return exit_success;
+}
+
+bool fs_update(struct fs* fs, char* error_message)
+{
+    struct stat st;
+
+    if (stat(fs->path, &st) < 0) {
+        strcpy(error_message, "stat failed (directory may not exist)");
+        return false;
+    }
+
+    if (!fs_reload(fs, error_message)) {
+        return false;
+    }
+
+    fs->last_updated = st.st_atime;
+
+    return true;
 }
 
 bool fs_chdir(struct fs* fs, char* path, char* error_message)
