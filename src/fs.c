@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <assert.h>
 #include <sys/types.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -155,6 +156,8 @@ bool fs_chdir_abs(struct fs* fs, char* path, char* error_message)
 
 bool fs_chdir(struct fs* fs, char* path, char* error_message)
 {
+    assert(strlen(fs->path) + 1 + strlen(path) < PATH_MAX);
+
     strcat(fs->path, "/");
     strcat(fs->path, path);
 
