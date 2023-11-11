@@ -1,4 +1,4 @@
-#include "fimale.h"
+#include "fman.h"
 #include "fs.h"
 
 #include <stdio.h>
@@ -28,7 +28,7 @@ bool fs_init(struct fs* fs, char* error_message)
         goto failure;
     }
 
-    if (!fs_chdir(fs, ".", error_message)) {
+    if (!fs_chdir_abs(fs, ".", error_message)) {
         goto failure_path_arena;
     }
 
@@ -79,9 +79,9 @@ bool fs_reload(struct fs* fs, char* error_message)
 
         struct fs_entry* entry = &fs->entries[fs->entries_len];
 
-        entry->real_path_idx = fs->path_arena_used;
+        entry->path_idx = fs->path_arena_used;
 
-        fs->path_arena_used += strlen(fs->path) + 1 + strlen(dent->d_name) + 1;
+        fs->path_arena_used += strlen(dent->d_name) + 1;
 
         bool have_to_realloc = false;
 
@@ -94,12 +94,6 @@ bool fs_reload(struct fs* fs, char* error_message)
             char* new_path_arena = realloc(fs->path_arena, sizeof(*fs->path_arena) * fs->path_arena_capacity);
 
             if (new_path_arena == NULL) {
-                // we are NOT calling fs_dealloc here
-                // because this code may not end up being equivalent
-                // to that function in the future.
-                // for instance, we could have multiple allocations,
-                // some of which we may not want to free,
-                // or OS entries we want to keep alive even afterwards.
                 free(fs->path_arena);
                 fs->path_arena = NULL;
 
@@ -111,12 +105,7 @@ bool fs_reload(struct fs* fs, char* error_message)
             fs->path_arena = new_path_arena;
         }
 
-        strcpy(&fs->path_arena[entry->real_path_idx], fs->path);
-        strcat(&fs->path_arena[entry->real_path_idx], "/");
-
-        entry->path_idx = entry->real_path_idx + strlen(fs->path) + 1;
-
-        strcat(&fs->path_arena[entry->path_idx], dent->d_name);
+        strcpy(&fs->path_arena[entry->path_idx], dent->d_name);
 
         if (S_ISDIR(st.st_mode)) {
             entry->type = E_entry_folder;
@@ -154,9 +143,22 @@ bool fs_update(struct fs* fs, char* error_message)
     return true;
 }
 
-bool fs_chdir(struct fs* fs, char* path, char* error_message)
+bool fs_chdir_abs(struct fs* fs, char* path, char* error_message)
 {
     if (realpath(path, fs->path) == NULL) {
+        strcpy(error_message, "realpath failed");
+        return false;
+    }
+
+    return true;
+}
+
+bool fs_chdir(struct fs* fs, char* path, char* error_message)
+{
+    strcat(fs->path, "/");
+    strcat(fs->path, path);
+
+    if (realpath(fs->path, fs->path) == NULL) {
         strcpy(error_message, "realpath failed");
         return false;
     }

@@ -5,7 +5,7 @@ FILES   = $(shell find src -name "*.c")
 OBJECTS = $(patsubst src/%.c,build/%.o,$(FILES))
 
 LIBS    = -lm
-LIBS    += `pkg-config ncurses --cflags --libs`
+LIBS    += -ltinfo -lncurses
 WARN    = -Wall -Wextra -Werror
 OPT     ?= 0
 CFLAGS  = -Ilib -O$(OPT) $(WARN)
@@ -17,7 +17,7 @@ build_folder:
 
 build: build_folder $(TARGET)
 
-run: $(TARGET) build
+run: build
 	./$(TARGET)
 
 $(TARGET): $(OBJECTS)

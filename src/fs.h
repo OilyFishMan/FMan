@@ -1,8 +1,6 @@
 #ifndef FS_H_
 #define FS_H_
 
-#include "fimale.h"
-
 #include <stddef.h>
 #include <stdbool.h>
 #include <limits.h>
@@ -24,7 +22,6 @@ struct fs_entry
     // The actual strings need to be null terminated (because stat)
     // so there's no point storing their lengths here.
     size_t path_idx;
-    size_t real_path_idx;
 
     time_t last_updated;
 };
@@ -32,6 +29,8 @@ struct fs_entry
 struct fs
 {
     char path[PATH_MAX];
+
+    time_t last_updated;
 
     size_t entries_len;
     struct fs_entry entries[MAX_FS_ENTRIES];
@@ -41,12 +40,11 @@ struct fs
     char*  path_arena;
 };
 
-#define fs_default ((struct fs) {0})
-
 bool fs_init(struct fs* fs, char* error_message);
 void fs_dealloc(struct fs* fs);
 bool fs_reload(struct fs* fs, char* error_message);
 bool fs_update(struct fs* fs, char* error_message);
+bool fs_chdir_abs(struct fs* fs, char* path, char* error_message);
 bool fs_chdir(struct fs* fs, char* path, char* error_message);
 
 #endif // FS_H_
