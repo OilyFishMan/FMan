@@ -13,12 +13,12 @@
 #define KEY_ESCAPE 27
 #define MAX_FILE_NAME_DISPLAY 20
 
-void state_public_update(struct state* state)
+void state_public_update(struct fman_state* state)
 {
     getmaxyx(stdscr, state->screen_height, state->screen_width);
 }
 
-void state_render(struct state* state)
+void state_render(struct fman_state* state)
 {
     const size_t fs_window_start = state->screen_height - state_fs_window_height(state) - 1;
 
@@ -37,7 +37,6 @@ void state_render(struct state* state)
 
         asctime_r(gmtime_r(&entry->last_updated, &broken_up_time), time_fmt);
 
-        // Remember, this pointer is UB whenever we reload the filesystem.
         const char* path_str = &state->fs.path_arena[entry->path_idx];
         const char* folder_end = entry->type == E_entry_folder ? "/" : "";
         const char* dots = "..";
@@ -81,7 +80,7 @@ void state_render(struct state* state)
     refresh();
 }
 
-bool event_normal_mode(struct state* state, const int ch, char* error_message)
+bool event_normal_mode(struct fman_state* state, const int ch, char* error_message)
 {
     switch (ch) {
         case KEY_ESCAPE: {
@@ -137,7 +136,7 @@ bool event_normal_mode(struct state* state, const int ch, char* error_message)
     return true;
 }
 
-void event_typing_mode(struct state* state, const int ch)
+void event_typing_mode(struct fman_state* state, const int ch)
 {
     switch (ch) {
         case KEY_ESCAPE:
@@ -175,7 +174,7 @@ int main(void)
     timeout(100);
     set_escdelay(10);
 
-    struct state state = {0};
+    struct fman_state state = {0};
 
     if (!state_init(&state, error_message)) {
         exit_success = false;
