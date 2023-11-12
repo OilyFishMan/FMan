@@ -9,7 +9,7 @@
 #include <limits.h>
 #include <time.h>
 
-bool state_init(struct fman_state* state, char* error_message)
+bool fman_init(struct fman_state* state, char* error_message)
 {
     state->mode = E_mode_normal;
 
@@ -29,12 +29,12 @@ bool state_init(struct fman_state* state, char* error_message)
     return true;
 }
 
-void state_dealloc(struct fman_state* state)
+void fman_dealloc(struct fman_state* state)
 {
     fs_dealloc(&state->fs);
 }
 
-void state_move_up(struct fman_state* state)
+void fman_move_up(struct fman_state* state)
 {
     if (state->match_cursor_y > 0) {
         if (state->match_cursor_y == state->scroll_y) {
@@ -45,21 +45,21 @@ void state_move_up(struct fman_state* state)
     }
 }
 
-void state_move_down(struct fman_state* state)
+void fman_move_down(struct fman_state* state)
 {
     if (state->match_cursor_y + 1 < state->pattern_matches_len) {
         ++state->match_cursor_y;
 
-        if (state->match_cursor_y - state->scroll_y >= state_fs_window_height(state)) {
+        if (state->match_cursor_y - state->scroll_y >= fman_fs_window_height(state)) {
             ++state->scroll_y;
         }
     }
 }
 
-void state_move_screen_up(struct fman_state* state)
+void fman_move_screen_up(struct fman_state* state)
 {
     if (state->match_cursor_y + 1 >= state->screen_height) {
-        state->match_cursor_y -= state_fs_window_height(state);
+        state->match_cursor_y -= fman_fs_window_height(state);
     } else {
         state->match_cursor_y = 0;
     }
@@ -67,21 +67,21 @@ void state_move_screen_up(struct fman_state* state)
     state->scroll_y = state->match_cursor_y;
 }
 
-void state_move_screen_down(struct fman_state* state)
+void fman_move_screen_down(struct fman_state* state)
 {
     if (state->pattern_matches_len >= state->screen_height
-     && state->match_cursor_y + state_fs_window_height(state) <= state->pattern_matches_len - 1) {
-        state->match_cursor_y += state_fs_window_height(state);
+     && state->match_cursor_y + fman_fs_window_height(state) <= state->pattern_matches_len - 1) {
+        state->match_cursor_y += fman_fs_window_height(state);
     } else {
         state->match_cursor_y = state->pattern_matches_len - 1;
     }
 
-    if (state->match_cursor_y - state->scroll_y >= state_fs_window_height(state)) {
-        state->scroll_y = state->match_cursor_y - state_fs_window_height(state) + 1;
+    if (state->match_cursor_y - state->scroll_y >= fman_fs_window_height(state)) {
+        state->scroll_y = state->match_cursor_y - fman_fs_window_height(state) + 1;
     }
 }
 
-bool state_interact(struct fman_state* state, char* error_message)
+bool fman_interact(struct fman_state* state, char* error_message)
 {
     state->pattern[0] = '\0';
 
@@ -106,14 +106,14 @@ bool state_interact(struct fman_state* state, char* error_message)
     return true;
 }
 
-bool state_go_back_dir(struct fman_state* state, char* error_message)
+bool fman_go_back_dir(struct fman_state* state, char* error_message)
 {
     state->pattern[0] = '\0';
 
     return fs_chdir(&state->fs, "..", error_message);
 }
 
-void state_pattern_add_char(struct fman_state* state, const char ch)
+void fman_pattern_add_char(struct fman_state* state, const char ch)
 {
     const size_t len = strlen(state->pattern);
 
@@ -123,7 +123,7 @@ void state_pattern_add_char(struct fman_state* state, const char ch)
     }
 }
 
-void state_pattern_delete_char(struct fman_state* state)
+void fman_pattern_delete_char(struct fman_state* state)
 {
     const size_t len = strlen(state->pattern);
 
@@ -132,7 +132,7 @@ void state_pattern_delete_char(struct fman_state* state)
     }
 }
 
-bool state_update(struct fman_state* state, char* error_message)
+bool fman_update(struct fman_state* state, char* error_message)
 {
     state->cursor_y = state->pattern_matches[state->match_cursor_y];
 
@@ -154,8 +154,8 @@ bool state_update(struct fman_state* state, char* error_message)
                 contains_cursor = true;
                 state->match_cursor_y = state->pattern_matches_len - 1;
                 
-                if (state->scroll_y + state_fs_window_height(state) < state->match_cursor_y) {
-                    state->scroll_y = state->match_cursor_y - state_fs_window_height(state) + 1;
+                if (state->scroll_y + fman_fs_window_height(state) < state->match_cursor_y) {
+                    state->scroll_y = state->match_cursor_y - fman_fs_window_height(state) + 1;
                 }
             }
         }
@@ -166,8 +166,8 @@ bool state_update(struct fman_state* state, char* error_message)
     }
 
     if (state->scroll_y > state->pattern_matches_len) {
-        if (state->pattern_matches_len > state_fs_window_height(state)) {
-            state->scroll_y = state->pattern_matches_len - state_fs_window_height(state);
+        if (state->pattern_matches_len > fman_fs_window_height(state)) {
+            state->scroll_y = state->pattern_matches_len - fman_fs_window_height(state);
         } else {
             state->scroll_y = 0;
         }
