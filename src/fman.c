@@ -9,167 +9,167 @@
 #include <limits.h>
 #include <time.h>
 
-bool fman_init(struct fman_state* state, char* error_message)
+bool fman_init(struct fman* fman, char* error_message)
 {
-    state->mode = E_mode_normal;
+    fman->mode = E_mode_normal;
 
-    state->pattern_matches_len = 0;
+    fman->pattern_matches_len = 0;
 
-    state->screen_width = 0;
-    state->screen_height = 0;
+    fman->screen_width = 0;
+    fman->screen_height = 0;
 
-    state->cursor_y = 0;
-    state->match_cursor_y = 0;
-    state->scroll_y = 0;
+    fman->cursor_y = 0;
+    fman->match_cursor_y = 0;
+    fman->scroll_y = 0;
 
-    if (!fs_init(&state->fs, error_message)) {
+    if (!fs_init(&fman->fs, error_message)) {
         return false;
     }
 
     return true;
 }
 
-void fman_dealloc(struct fman_state* state)
+void fman_dealloc(struct fman* fman)
 {
-    fs_dealloc(&state->fs);
+    fs_dealloc(&fman->fs);
 }
 
-void fman_move_up(struct fman_state* state)
+void fman_move_up(struct fman* fman)
 {
-    if (state->match_cursor_y > 0) {
-        if (state->match_cursor_y == state->scroll_y) {
-            --state->scroll_y;
+    if (fman->match_cursor_y > 0) {
+        if (fman->match_cursor_y == fman->scroll_y) {
+            --fman->scroll_y;
         }
 
-        --state->match_cursor_y;
+        --fman->match_cursor_y;
     }
 }
 
-void fman_move_down(struct fman_state* state)
+void fman_move_down(struct fman* fman)
 {
-    if (state->match_cursor_y + 1 < state->pattern_matches_len) {
-        ++state->match_cursor_y;
+    if (fman->match_cursor_y + 1 < fman->pattern_matches_len) {
+        ++fman->match_cursor_y;
 
-        if (state->match_cursor_y - state->scroll_y >= fman_fs_window_height(state)) {
-            ++state->scroll_y;
+        if (fman->match_cursor_y - fman->scroll_y >= fman_fs_window_height(fman)) {
+            ++fman->scroll_y;
         }
     }
 }
 
-void fman_move_screen_up(struct fman_state* state)
+void fman_move_screen_up(struct fman* fman)
 {
-    if (state->match_cursor_y + 1 >= state->screen_height) {
-        state->match_cursor_y -= fman_fs_window_height(state);
+    if (fman->match_cursor_y + 1 >= fman->screen_height) {
+        fman->match_cursor_y -= fman_fs_window_height(fman);
     } else {
-        state->match_cursor_y = 0;
+        fman->match_cursor_y = 0;
     }
 
-    state->scroll_y = state->match_cursor_y;
+    fman->scroll_y = fman->match_cursor_y;
 }
 
-void fman_move_screen_down(struct fman_state* state)
+void fman_move_screen_down(struct fman* fman)
 {
-    if (state->pattern_matches_len >= state->screen_height
-     && state->match_cursor_y + fman_fs_window_height(state) <= state->pattern_matches_len - 1) {
-        state->match_cursor_y += fman_fs_window_height(state);
+    if (fman->pattern_matches_len >= fman->screen_height
+     && fman->match_cursor_y + fman_fs_window_height(fman) <= fman->pattern_matches_len - 1) {
+        fman->match_cursor_y += fman_fs_window_height(fman);
     } else {
-        state->match_cursor_y = state->pattern_matches_len - 1;
+        fman->match_cursor_y = fman->pattern_matches_len - 1;
     }
 
-    if (state->match_cursor_y - state->scroll_y >= fman_fs_window_height(state)) {
-        state->scroll_y = state->match_cursor_y - fman_fs_window_height(state) + 1;
+    if (fman->match_cursor_y - fman->scroll_y >= fman_fs_window_height(fman)) {
+        fman->scroll_y = fman->match_cursor_y - fman_fs_window_height(fman) + 1;
     }
 }
 
-bool fman_interact(struct fman_state* state, char* error_message)
+bool fman_interact(struct fman* fman, char* error_message)
 {
-    state->pattern[0] = '\0';
+    fman->pattern[0] = '\0';
 
-    if (state->pattern_matches_len == 0) {
+    if (fman->pattern_matches_len == 0) {
         return true;
     }
 
-    struct fs_entry entry = state->fs.entries[state->pattern_matches[state->match_cursor_y]];
+    struct fs_entry entry = fman->fs.entries[fman->pattern_matches[fman->match_cursor_y]];
 
     if (entry.type != E_entry_folder) {
         strcpy(error_message, "TODO: interacting with files is not implemented yet");
         return false;
     }
 
-    if (!fs_chdir(&state->fs, &state->fs.path_arena[entry.path_idx], error_message)) {
+    if (!fs_chdir(&fman->fs, &fman->fs.path_arena[entry.path_idx], error_message)) {
         return false;
     }
 
-    state->match_cursor_y = 0;
-    state->scroll_y = 0;
+    fman->match_cursor_y = 0;
+    fman->scroll_y = 0;
 
     return true;
 }
 
-bool fman_go_back_dir(struct fman_state* state, char* error_message)
+bool fman_go_back_dir(struct fman* fman, char* error_message)
 {
-    state->pattern[0] = '\0';
+    fman->pattern[0] = '\0';
 
-    return fs_chdir(&state->fs, "..", error_message);
+    return fs_chdir(&fman->fs, "..", error_message);
 }
 
-void fman_pattern_add_char(struct fman_state* state, const char ch)
+void fman_pattern_add_char(struct fman* fman, const char ch)
 {
-    const size_t len = strlen(state->pattern);
+    const size_t len = strlen(fman->pattern);
 
     if (len + 1 < PATH_MAX) {
-        state->pattern[len] = ch;
-        state->pattern[len + 1] = '\0';
+        fman->pattern[len] = ch;
+        fman->pattern[len + 1] = '\0';
     }
 }
 
-void fman_pattern_delete_char(struct fman_state* state)
+void fman_pattern_delete_char(struct fman* fman)
 {
-    const size_t len = strlen(state->pattern);
+    const size_t len = strlen(fman->pattern);
 
     if (len > 0) {
-        state->pattern[len - 1] = '\0';
+        fman->pattern[len - 1] = '\0';
     }
 }
 
-bool fman_update(struct fman_state* state, char* error_message)
+bool fman_update(struct fman* fman, char* error_message)
 {
-    state->cursor_y = state->pattern_matches[state->match_cursor_y];
+    fman->cursor_y = fman->pattern_matches[fman->match_cursor_y];
 
-    if (!fs_update(&state->fs, error_message)) {
+    if (!fs_update(&fman->fs, error_message)) {
         return false;
     }
 
-    state->pattern_matches_len = 0;
+    fman->pattern_matches_len = 0;
 
     bool contains_cursor = false;
 
-    for (size_t i = 0; i < state->fs.entries_len; ++i) {
-        struct fs_entry entry = state->fs.entries[i];
+    for (size_t i = 0; i < fman->fs.entries_len; ++i) {
+        struct fs_entry entry = fman->fs.entries[i];
 
-        if (pattern_matches(state->pattern, &state->fs.path_arena[entry.path_idx])) {
-            state->pattern_matches[state->pattern_matches_len++] = i;
+        if (pattern_matches(fman->pattern, &fman->fs.path_arena[entry.path_idx])) {
+            fman->pattern_matches[fman->pattern_matches_len++] = i;
 
-            if (i == state->cursor_y) {
+            if (i == fman->cursor_y) {
                 contains_cursor = true;
-                state->match_cursor_y = state->pattern_matches_len - 1;
+                fman->match_cursor_y = fman->pattern_matches_len - 1;
                 
-                if (state->scroll_y + fman_fs_window_height(state) < state->match_cursor_y) {
-                    state->scroll_y = state->match_cursor_y - fman_fs_window_height(state) + 1;
+                if (fman->scroll_y + fman_fs_window_height(fman) < fman->match_cursor_y) {
+                    fman->scroll_y = fman->match_cursor_y - fman_fs_window_height(fman) + 1;
                 }
             }
         }
     }
 
     if (!contains_cursor) {
-        state->match_cursor_y = 0;
+        fman->match_cursor_y = 0;
     }
 
-    if (state->scroll_y > state->pattern_matches_len) {
-        if (state->pattern_matches_len > fman_fs_window_height(state)) {
-            state->scroll_y = state->pattern_matches_len - fman_fs_window_height(state);
+    if (fman->scroll_y > fman->pattern_matches_len) {
+        if (fman->pattern_matches_len > fman_fs_window_height(fman)) {
+            fman->scroll_y = fman->pattern_matches_len - fman_fs_window_height(fman);
         } else {
-            state->scroll_y = 0;
+            fman->scroll_y = 0;
         }
     }
 

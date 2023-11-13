@@ -13,31 +13,31 @@
 #define KEY_ESCAPE 27
 #define MAX_FILE_NAME_DISPLAY 20
 
-void fman_public_update(struct fman_state* state)
+void fman_public_update(struct fman* fman)
 {
-    getmaxyx(stdscr, state->screen_height, state->screen_width);
+    getmaxyx(stdscr, fman->screen_height, fman->screen_width);
 }
 
-void fman_render(struct fman_state* state)
+void fman_render(struct fman* fman)
 {
-    const size_t fs_window_start = state->screen_height - fman_fs_window_height(state) - 1;
+    const size_t fs_window_start = fman->screen_height - fman_fs_window_height(fman) - 1;
 
     erase();
 
     struct tm broken_up_time;
     char time_fmt[128];
 
-    asctime_r(gmtime_r(&state->fs.last_updated, &broken_up_time), time_fmt);
+    asctime_r(gmtime_r(&fman->fs.last_updated, &broken_up_time), time_fmt);
 
-    mvprintw(0, 0, "[folder name: %s]", state->fs.path);
+    mvprintw(0, 0, "[folder name: %s]", fman->fs.path);
     mvprintw(1, 0, "[last updated: %.*s]", (int) (strlen(time_fmt) - 1), time_fmt);
 
-    for (size_t i = 0; i < fman_fs_window_height(state) && i + state->scroll_y < state->pattern_matches_len; ++i) {
-        struct fs_entry* entry = &state->fs.entries[state->pattern_matches[i + state->scroll_y]];
+    for (size_t i = 0; i < fman_fs_window_height(fman) && i + fman->scroll_y < fman->pattern_matches_len; ++i) {
+        struct fs_entry* entry = &fman->fs.entries[fman->pattern_matches[i + fman->scroll_y]];
 
         asctime_r(gmtime_r(&entry->last_updated, &broken_up_time), time_fmt);
 
-        const char* path_str = &state->fs.path_arena[entry->path_idx];
+        const char* path_str = &fman->fs.path_arena[entry->path_idx];
         const char* folder_end = entry->type == E_entry_folder ? "/" : "";
         const char* dots = "..";
 
@@ -54,15 +54,15 @@ void fman_render(struct fman_state* state)
         mvprintw((int) (i + fs_window_start), MAX_FILE_NAME_DISPLAY + 1, "%s", time_fmt);
     }
 
-    for (size_t j = state->pattern_matches_len - state->scroll_y; j + 1 < state->screen_height; ++j) {
+    for (size_t j = fman->pattern_matches_len - fman->scroll_y; j + 1 < fman->screen_height; ++j) {
         mvprintw((int) (j + fs_window_start), 0, "~");
     }
 
-    mvprintw((int) (state->screen_height - 1), 0, "pattern: %s", state->pattern);
+    mvprintw((int) (fman->screen_height - 1), 0, "pattern: %s", fman->pattern);
 
-    switch (state->mode) {
+    switch (fman->mode) {
         case E_mode_normal: {
-            move(state->match_cursor_y - state->scroll_y + fs_window_start, 0);
+            move(fman->match_cursor_y - fman->scroll_y + fs_window_start, 0);
             break;
         }
 
@@ -80,26 +80,26 @@ void fman_render(struct fman_state* state)
     refresh();
 }
 
-bool event_normal_mode(struct fman_state* state, const int ch, char* error_message)
+bool event_normal_mode(struct fman* fman, const int ch, char* error_message)
 {
     switch (ch) {
         case KEY_ESCAPE: {
-            state->mode = E_mode_stopped;
+            fman->mode = E_mode_stopped;
             break;
         }
 
         case KEY_UP: {
-            fman_move_up(state);
+            fman_move_up(fman);
             break;
         }
 
         case KEY_DOWN: {
-            fman_move_down(state);
+            fman_move_down(fman);
             break;
         }
 
         case KEY_LEFT: {
-            if (!fman_go_back_dir(state, error_message)) {
+            if (!fman_go_back_dir(fman, error_message)) {
                 return false;
             }
 
@@ -107,24 +107,24 @@ bool event_normal_mode(struct fman_state* state, const int ch, char* error_messa
         }
 
         case 'w': {
-            fman_move_screen_up(state);
+            fman_move_screen_up(fman);
             break;
         }
 
         case 's': {
-            fman_move_screen_down(state);
+            fman_move_screen_down(fman);
             break;
         }
 
         case '\n': {
-            if (!fman_interact(state, error_message)) {
+            if (!fman_interact(fman, error_message)) {
                 return false;
             }
             break;
         }
 
         case 'f': {
-            state->mode = E_mode_typing;
+            fman->mode = E_mode_typing;
             break;
         }
 
@@ -136,17 +136,17 @@ bool event_normal_mode(struct fman_state* state, const int ch, char* error_messa
     return true;
 }
 
-void event_typing_mode(struct fman_state* state, const int ch)
+void event_typing_mode(struct fman* fman, const int ch)
 {
     switch (ch) {
         case KEY_ESCAPE:
         case '\n': {
-            state->mode = E_mode_normal;
+            fman->mode = E_mode_normal;
             break;
         }
 
         case KEY_BACKSPACE: {
-            fman_pattern_delete_char(state);
+            fman_pattern_delete_char(fman);
             break;
         }
 
@@ -155,7 +155,7 @@ void event_typing_mode(struct fman_state* state, const int ch)
         }
 
         default: {
-            fman_pattern_add_char(state, ch);
+            fman_pattern_add_char(fman, ch);
             break;
         }
     }
@@ -174,37 +174,37 @@ int main(void)
     timeout(100);
     set_escdelay(10);
 
-    struct fman_state state = {0};
+    struct fman fman = {0};
 
-    if (!fman_init(&state, error_message)) {
+    if (!fman_init(&fman, error_message)) {
         exit_success = false;
         goto cleanup;
     }
 
-    while (state.mode != E_mode_stopped) {
-        fman_public_update(&state);
+    while (fman.mode != E_mode_stopped) {
+        fman_public_update(&fman);
 
-        if (!fman_update(&state, error_message)) {
+        if (!fman_update(&fman, error_message)) {
             exit_success = false;
-            goto cleanup_state;
+            goto cleanup_fman;
         }
 
-        fman_render(&state);
+        fman_render(&fman);
 
         int ch = getch();
 
-        switch (state.mode) {
+        switch (fman.mode) {
             case E_mode_normal: {
-                if (!event_normal_mode(&state, ch, error_message)) {
+                if (!event_normal_mode(&fman, ch, error_message)) {
                     exit_success = false;
-                    goto cleanup_state;
+                    goto cleanup_fman;
                 }
 
                 break;
             }
 
             case E_mode_typing: {
-                event_typing_mode(&state, ch);
+                event_typing_mode(&fman, ch);
                 break;
             }
 
@@ -214,8 +214,8 @@ int main(void)
         }
     }
 
-cleanup_state:
-    fman_dealloc(&state);
+cleanup_fman:
+    fman_dealloc(&fman);
 
 cleanup:
     endwin();

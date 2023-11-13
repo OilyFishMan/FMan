@@ -8,16 +8,16 @@
 
 #define MAX_ERROR_MSG_LEN 128
 
-enum fman_state_mode
+enum fman_mode
 {
     E_mode_stopped,
     E_mode_normal,
     E_mode_typing
 };
 
-struct fman_state
+struct fman
 {
-    enum fman_state_mode mode;
+    enum fman_mode mode;
 
     char pattern[PATH_MAX];
 
@@ -32,22 +32,22 @@ struct fman_state
     struct fs fs;
 };
 
-bool fman_init(struct fman_state* state, char* error_message);
-void fman_dealloc(struct fman_state* state);
+bool fman_init(struct fman* fman, char* error_message);
+void fman_dealloc(struct fman* fman);
 
-#define fman_fs_window_height(state) ((state)->screen_height - 3)
+#define fman_fs_window_height(fman) ((fman)->screen_height - 3)
 
-void fman_move_up(struct fman_state* state);
-void fman_move_down(struct fman_state* state);
-void fman_move_screen_up(struct fman_state* state);
-void fman_move_screen_down(struct fman_state* state);
+void fman_move_up(struct fman* fman);
+void fman_move_down(struct fman* fman);
+void fman_move_screen_up(struct fman* fman);
+void fman_move_screen_down(struct fman* fman);
 
-bool fman_interact(struct fman_state* state, char* error_message);
-bool fman_go_back_dir(struct fman_state* state, char* error_message);
+bool fman_interact(struct fman* fman, char* error_message);
+bool fman_go_back_dir(struct fman* fman, char* error_message);
 
-void fman_pattern_add_char(struct fman_state* state, const char ch);
-void fman_pattern_delete_char(struct fman_state* state);
+void fman_pattern_add_char(struct fman* fman, const char ch);
+void fman_pattern_delete_char(struct fman* fman);
 
-bool fman_update(struct fman_state* state, char* error_message);
+bool fman_update(struct fman* fman, char* error_message);
 
 #endif // FIMALE_H_
