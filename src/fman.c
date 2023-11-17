@@ -12,19 +12,24 @@
 bool fman_init(struct fman* fman, char* error_message)
 {
     fman->mode = E_mode_normal;
+    fman->command = E_command_find;
+
+    memset(fman->typing_text, 0, sizeof(*fman->typing_text) * PATH_MAX);
+
+    memset(fman->pattern, 0, sizeof(*fman->pattern) * PATH_MAX);
 
     fman->pattern_matches_len = 0;
 
     fman->screen_width = 0;
     fman->screen_height = 0;
 
-    fman->cursor_y = 0;
-    fman->match_cursor_y = 0;
-    fman->scroll_y = 0;
-
     if (!fs_init(&fman->fs, error_message)) {
         return false;
     }
+
+    fman->cursor_y = 0;
+    fman->match_cursor_y = 0;
+    fman->scroll_y = 0;
 
     return true;
 }
@@ -47,7 +52,7 @@ void fman_move_up(struct fman* fman)
 
 void fman_move_down(struct fman* fman)
 {
-    if (fman->match_cursor_y + 1 < fman->pattern_matches_len) {
+    if (fman->match_cursor_y < fman->pattern_matches_len - 1) {
         ++fman->match_cursor_y;
 
         if (fman->match_cursor_y - fman->scroll_y >= fman_fs_window_height(fman)) {
@@ -113,23 +118,88 @@ bool fman_go_back_dir(struct fman* fman, char* error_message)
     return fs_chdir(&fman->fs, "..", error_message);
 }
 
-void fman_pattern_add_char(struct fman* fman, const char ch)
+void fman_begin_command(struct fman* fman, enum fman_command command)
 {
-    const size_t len = strlen(fman->pattern);
+    fman->typing_text[0] = '\0';
+
+    fman->mode = E_mode_typing;
+    fman->command = command;
+}
+
+void fman_type_char(struct fman* fman, const char ch)
+{
+    const size_t len = strlen(fman->typing_text);
 
     if (len + 1 < PATH_MAX) {
-        fman->pattern[len] = ch;
-        fman->pattern[len + 1] = '\0';
+        fman->typing_text[len] = ch;
+        fman->typing_text[len + 1] = '\0';
     }
 }
 
-void fman_pattern_delete_char(struct fman* fman)
+void fman_delete_char(struct fman* fman)
 {
-    const size_t len = strlen(fman->pattern);
+    const size_t len = strlen(fman->typing_text);
 
     if (len > 0) {
-        fman->pattern[len - 1] = '\0';
+        fman->typing_text[len - 1] = '\0';
     }
+}
+
+bool fman_submit_command(struct fman* fman, char* error_message)
+{
+    switch (fman->command) {
+        case E_command_select_command: {
+            bool command_found = false;
+
+            for (size_t i = 0; i < FMAN_COMMANDS_MAX; ++i) {
+                if (strcmp(command_string[i], fman->typing_text) == 0) {
+                    fman->command = (enum fman_command) i;
+                    command_found = true;
+                }
+            }
+
+            if (!command_found) {
+                return true;
+            }
+
+            break;
+        }
+
+        case E_command_find: {
+            strcpy(fman->pattern, fman->typing_text);
+            fman->mode = E_mode_normal;
+            break;
+        }
+
+        case E_command_remove: {
+            if (!fs_remove(&fman->fs, fman->typing_text, error_message)) {
+                return false;
+            }
+
+            fman->mode = E_mode_normal;
+            break;
+        }
+
+        case E_command_create_file: {
+            if (!fs_create_file(&fman->fs, fman->typing_text, error_message)) {
+                return false;
+            }
+            fman->mode = E_mode_normal;
+            break;
+        }
+
+        case E_command_create_folder: {
+            if (!fs_create_folder(&fman->fs, fman->typing_text, error_message)) {
+                return false;
+            }
+            fman->mode = E_mode_normal;
+            break;
+        }
+    }
+
+    fman->typing_text[0] = '\0';
+
+    return true;
 }
 
 bool fman_update(struct fman* fman, char* error_message)
@@ -147,22 +217,27 @@ bool fman_update(struct fman* fman, char* error_message)
     for (size_t i = 0; i < fman->fs.entries_len; ++i) {
         struct fs_entry entry = fman->fs.entries[i];
 
-        if (pattern_matches(fman->pattern, &fman->fs.path_arena[entry.path_idx])) {
-            fman->pattern_matches[fman->pattern_matches_len++] = i;
+        if (!pattern_matches(fman->pattern, &fman->fs.path_arena[entry.path_idx])) {
+            continue;
+        }
 
-            if (i == fman->cursor_y) {
-                contains_cursor = true;
-                fman->match_cursor_y = fman->pattern_matches_len - 1;
-                
-                if (fman->scroll_y + fman_fs_window_height(fman) < fman->match_cursor_y) {
-                    fman->scroll_y = fman->match_cursor_y - fman_fs_window_height(fman) + 1;
-                }
-            }
+        fman->pattern_matches[fman->pattern_matches_len++] = i;
+
+        if (i != fman->cursor_y) {
+            continue;
+        }
+
+        contains_cursor = true;
+        fman->match_cursor_y = fman->pattern_matches_len - 1;
+        
+        if (fman->scroll_y + fman_fs_window_height(fman) < fman->match_cursor_y) {
+            fman->scroll_y = fman->match_cursor_y - fman_fs_window_height(fman) + 1;
         }
     }
 
     if (!contains_cursor) {
         fman->match_cursor_y = 0;
+        fman->cursor_y = 0;
     }
 
     if (fman->scroll_y > fman->pattern_matches_len) {
@@ -175,4 +250,3 @@ bool fman_update(struct fman* fman, char* error_message)
 
     return true;
 }
-

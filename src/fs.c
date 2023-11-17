@@ -10,15 +10,15 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <curses.h>
 
 bool fs_init(struct fs* fs, char* error_message)
 {
-    memset(fs->path, 0, PATH_MAX);
+    memset(fs->path, 0, sizeof(*fs->path) * PATH_MAX);
 
     fs->last_updated = (time_t) 0;
 
     fs->entries_len = 0;
+    memset(fs->entries, 0, sizeof(*fs->entries) * MAX_FS_ENTRIES);
 
     fs->path_arena_used = 0;
     fs->path_arena_capacity = 0;
@@ -144,6 +144,21 @@ bool fs_update(struct fs* fs, char* error_message)
     return true;
 }
 
+bool fs_chdir(struct fs* fs, char* path, char* error_message)
+{
+    assert(strlen(fs->path) + 1 + strlen(path) < PATH_MAX);
+
+    strcat(fs->path, "/");
+    strcat(fs->path, path);
+
+    if (realpath(fs->path, fs->path) == NULL) {
+        strcpy(error_message, "realpath failed");
+        return false;
+    }
+
+    return true;
+}
+
 bool fs_chdir_abs(struct fs* fs, char* path, char* error_message)
 {
     if (realpath(path, fs->path) == NULL) {
@@ -154,15 +169,109 @@ bool fs_chdir_abs(struct fs* fs, char* path, char* error_message)
     return true;
 }
 
-bool fs_chdir(struct fs* fs, char* path, char* error_message)
+#include <curses.h>
+
+bool fs_remove(struct fs* fs, char* name, char* error_message)
 {
-    assert(strlen(fs->path) + 1 + strlen(path) < PATH_MAX);
+    bool exit_success = true;
 
-    strcat(fs->path, "/");
-    strcat(fs->path, path);
+    char path[PATH_MAX] = {0};
 
-    if (realpath(fs->path, fs->path) == NULL) {
-        strcpy(error_message, "realpath failed");
+    strcpy(path, fs->path);
+    strcat(path, "/");
+    strcat(path, name);
+
+    struct stat st;
+
+    if (stat(path, &st) != 0) {
+        strcpy(error_message, "stat failed");
+        exit_success = false;
+        goto cleanup;
+    }
+
+    if (!S_ISDIR(st.st_mode)) {
+        if (remove(path) != 0) {
+            strcpy(error_message, "remove failed");
+            exit_success = false;
+            goto cleanup;
+        }
+
+        exit_success = true;
+        goto cleanup;
+    }
+
+    DIR* srcdir = opendir(path);
+
+    if (srcdir == NULL) {
+        strcpy(error_message, "opendir failed");
+        exit_success = false;
+        goto cleanup;
+    }
+
+    struct dirent* dent;
+
+    while ((dent = readdir(srcdir)) != NULL) {
+        if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0) {
+            continue;
+        }
+
+        char prev_path[PATH_MAX] = {0};
+
+        strcpy(prev_path, fs->path);
+
+        strcpy(fs->path, path);
+
+        if (!fs_remove(fs, dent->d_name, error_message)) {
+            exit_success = false;
+            goto cleanup_srcdir;
+        }
+
+        strcpy(fs->path, prev_path);
+    }
+
+cleanup_srcdir:
+    closedir(srcdir);
+
+    if (remove(path) != 0) {
+        strcpy(error_message, "remove failed");
+        exit_success = false;
+        goto cleanup;
+    }
+
+cleanup:
+    return exit_success;
+}
+
+bool fs_create_file(struct fs* fs, char* name, char* error_message)
+{
+    char path[PATH_MAX] = {0};
+
+    strcpy(path, fs->path);
+    strcat(path, "/");
+    strcat(path, name);
+
+    FILE* file_ptr = fopen(path, "w");
+
+    if (file_ptr == NULL) {
+        strcpy(error_message, "fopen failed");
+        return false;
+    }
+
+    fclose(file_ptr);
+
+    return true;
+}
+
+bool fs_create_folder(struct fs* fs, char* name, char* error_message)
+{
+    char path[PATH_MAX] = {0};
+
+    strcpy(path, fs->path);
+    strcat(path, "/");
+    strcat(path, name);
+
+    if (mkdir(path, S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
+        strcpy(error_message, "mkdir failed");
         return false;
     }
 

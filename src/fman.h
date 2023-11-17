@@ -15,9 +15,31 @@ enum fman_mode
     E_mode_typing
 };
 
+enum fman_command
+{
+    E_command_select_command,
+    E_command_find,
+    E_command_remove,
+    E_command_create_file,
+    E_command_create_folder,
+};
+
+#define FMAN_COMMANDS_MAX (E_command_create_folder + 1)
+
+static const char* command_string[FMAN_COMMANDS_MAX] = {
+    [E_command_select_command] = "?",
+    [E_command_find]           = "find",
+    [E_command_remove]         = "rm",
+    [E_command_create_file]    = "mkf",
+    [E_command_create_folder]  = "mkd",
+};
+
 struct fman
 {
     enum fman_mode mode;
+    enum fman_command command;
+
+    char typing_text[PATH_MAX];
 
     char pattern[PATH_MAX];
 
@@ -25,11 +47,10 @@ struct fman
     size_t pattern_matches[MAX_FS_ENTRIES];
 
     size_t screen_width, screen_height;
-    size_t cursor_y;
-    size_t match_cursor_y;
-    size_t scroll_y;
 
     struct fs fs;
+
+    size_t cursor_y, scroll_y, match_cursor_y;
 };
 
 bool fman_init(struct fman* fman, char* error_message);
@@ -45,8 +66,10 @@ void fman_move_screen_down(struct fman* fman);
 bool fman_interact(struct fman* fman, char* error_message);
 bool fman_go_back_dir(struct fman* fman, char* error_message);
 
-void fman_pattern_add_char(struct fman* fman, const char ch);
-void fman_pattern_delete_char(struct fman* fman);
+void fman_begin_command(struct fman* fman, enum fman_command command);
+void fman_type_char(struct fman* fman, const char ch);
+void fman_delete_char(struct fman* fman);
+bool fman_submit_command(struct fman* fman, char* error_message);
 
 bool fman_update(struct fman* fman, char* error_message);
 

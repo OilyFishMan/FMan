@@ -42,9 +42,15 @@ struct fs
 
 bool fs_init(struct fs* fs, char* error_message);
 void fs_dealloc(struct fs* fs);
+
 bool fs_reload(struct fs* fs, char* error_message);
 bool fs_update(struct fs* fs, char* error_message);
-bool fs_chdir_abs(struct fs* fs, char* path, char* error_message);
+
 bool fs_chdir(struct fs* fs, char* path, char* error_message);
+bool fs_chdir_abs(struct fs* fs, char* path, char* error_message);
+
+bool fs_remove(struct fs* fs, char* name, char* error_message);
+bool fs_create_file(struct fs* fs, char* name, char* error_message);
+bool fs_create_folder(struct fs* fs, char* name, char* error_message);
 
 #endif // FS_H_

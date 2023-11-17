@@ -11,11 +11,9 @@ bool pattern_matches(const char* pattern, const char* text)
 
     size_t pattern_idx = 0;
 
-    for (size_t i = 0; i < text_len; ++i) {
-        if (pattern_idx < pattern_len) {
-            if (pattern[pattern_idx] == text[i]) {
-                ++pattern_idx;
-            }
+    for (size_t i = 0; i < text_len && pattern_idx < pattern_len; ++i) {
+        if (pattern[pattern_idx] == text[i]) {
+            ++pattern_idx;
         }
     }
 

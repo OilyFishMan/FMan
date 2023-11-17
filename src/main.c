@@ -32,7 +32,9 @@ void fman_render(struct fman* fman)
     mvprintw(0, 0, "[folder name: %s]", fman->fs.path);
     mvprintw(1, 0, "[last updated: %.*s]", (int) (strlen(time_fmt) - 1), time_fmt);
 
-    for (size_t i = 0; i < fman_fs_window_height(fman) && i + fman->scroll_y < fman->pattern_matches_len; ++i) {
+    for ( size_t i = 0
+        ; i < fman_fs_window_height(fman) && i + fman->scroll_y < fman->pattern_matches_len
+        ; ++i) {
         struct fs_entry* entry = &fman->fs.entries[fman->pattern_matches[i + fman->scroll_y]];
 
         asctime_r(gmtime_r(&entry->last_updated, &broken_up_time), time_fmt);
@@ -54,21 +56,21 @@ void fman_render(struct fman* fman)
         mvprintw((int) (i + fs_window_start), MAX_FILE_NAME_DISPLAY + 1, "%s", time_fmt);
     }
 
-    for (size_t j = fman->pattern_matches_len - fman->scroll_y; j + 1 < fman->screen_height; ++j) {
+    for ( size_t j = fman->pattern_matches_len - fman->scroll_y
+        ; j + fs_window_start < fman->screen_height - 1
+        ; ++j) {
         mvprintw((int) (j + fs_window_start), 0, "~");
     }
 
-    mvprintw((int) (fman->screen_height - 1), 0, "pattern: %s", fman->pattern);
-
     switch (fman->mode) {
         case E_mode_normal: {
+            mvprintw((int) (fman->screen_height - 1), 0, "-- PRESS ? TO SELECT COMMAND --");
             move(fman->match_cursor_y - fman->scroll_y + fs_window_start, 0);
             break;
         }
 
         case E_mode_typing: {
-            // we should already be at the end of the "pattern" line,
-            // as that was where we were last typing
+            mvprintw((int) (fman->screen_height - 1), 0, "%s %s", command_string[fman->command], fman->typing_text);
             break;
         }
 
@@ -123,8 +125,8 @@ bool event_normal_mode(struct fman* fman, const int ch, char* error_message)
             break;
         }
 
-        case 'f': {
-            fman->mode = E_mode_typing;
+        case '?': {
+            fman_begin_command(fman, E_command_select_command);
             break;
         }
 
@@ -136,17 +138,23 @@ bool event_normal_mode(struct fman* fman, const int ch, char* error_message)
     return true;
 }
 
-void event_typing_mode(struct fman* fman, const int ch)
+bool event_typing_mode(struct fman* fman, const int ch, char* error_message)
 {
     switch (ch) {
-        case KEY_ESCAPE:
-        case '\n': {
+        case KEY_BACKSPACE: {
+            fman_delete_char(fman);
+            break;
+        }
+        
+        case KEY_ESCAPE: {
             fman->mode = E_mode_normal;
             break;
         }
 
-        case KEY_BACKSPACE: {
-            fman_pattern_delete_char(fman);
+        case '\n': {
+            if (!fman_submit_command(fman, error_message)) {
+                return false;
+            }
             break;
         }
 
@@ -155,10 +163,12 @@ void event_typing_mode(struct fman* fman, const int ch)
         }
 
         default: {
-            fman_pattern_add_char(fman, ch);
+            fman_type_char(fman, ch);
             break;
         }
     }
+
+    return true;
 }
 
 int main(void)
@@ -172,7 +182,7 @@ int main(void)
     noecho();
     keypad(stdscr, true);
     timeout(100);
-    set_escdelay(10);
+    set_escdelay(0);
 
     struct fman fman = {0};
 
@@ -199,12 +209,14 @@ int main(void)
                     exit_success = false;
                     goto cleanup_fman;
                 }
-
                 break;
             }
 
             case E_mode_typing: {
-                event_typing_mode(&fman, ch);
+                if (!event_typing_mode(&fman, ch, error_message)) {
+                    exit_success = false;
+                    goto cleanup_fman;
+                }
                 break;
             }
 
