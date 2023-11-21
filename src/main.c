@@ -25,12 +25,12 @@ void fman_render(struct fman* fman)
     erase();
 
     struct tm broken_up_time;
-    char time_fmt[128];
+    char time_fmt[128]; // arbitrary
 
     asctime_r(gmtime_r(&fman->fs.last_updated, &broken_up_time), time_fmt);
 
-    mvprintw(0, 0, "[folder name: %s]", fman->fs.path);
-    mvprintw(1, 0, "[last updated: %.*s]", (int) (strlen(time_fmt) - 1), time_fmt);
+    mvprintw(0, 0, "%s", fman->fs.path);
+    mvprintw(1, 0, "%.*s", (int) (strlen(time_fmt) - 1), time_fmt);
 
     for ( size_t i = 0
         ; i < fman_fs_window_height(fman) && i + fman->scroll_y < fman->pattern_matches_len

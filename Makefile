@@ -1,33 +1,35 @@
 CC      = clang
 
-TARGET  = build/$(shell basename $(shell pwd))
-FILES   = $(shell find src -name "*.c")
-OBJECTS = $(patsubst src/%.c,build/%.o,$(FILES))
+TARGET  := build/$(shell basename $(shell pwd))
+FILES   := $(shell find src -name "*.c")
+OBJECTS := $(FILES:src/%.c=build/%.o)
+DEPENDS := $(FILES:src/%.c=deps/%.d)
 
-LIBS    = -lm
-LIBS    += -ltinfo -lncurses
-WARN    = -Wall -Wextra -Werror
+LIBS    := -lm -ltinfo -lncurses
+WARN    := -Wall -Wextra -Werror
 OPT     ?= 0
-CFLAGS  = -Ilib -O$(OPT) $(WARN)
+CFLAGS  := -Ilib -O$(OPT) $(WARN)
 
-.PHONY: build run clean
+.PHONY: all run clean
 
-build_folder:
+all: $(TARGET)
+
+build:
 	@mkdir -p build
 
-build: build_folder $(TARGET)
-
-run: build
+run: all
 	./$(TARGET)
 
-$(TARGET): $(OBJECTS)
+$(TARGET): build $(OBJECTS)
 	@if [[ -f $(TARGET) ]]; then\
 		rm $(TARGET);\
 	fi
 	$(CC) $(CFLAGS) $(LIBS) -o $(TARGET) $(OBJECTS)
 
+-include $(DEPENDS)
+
 build/%.o: src/%.c
-	$(CC) -c $(CFLAGS) -o $@ $^
+	$(CC) -MMD -MP -MF $(<:src/%.c=deps/%.d) -MT $@ -c $(CFLAGS) -o $@ $<
 
 clean:
 	rm -r build
