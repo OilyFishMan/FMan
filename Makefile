@@ -32,4 +32,5 @@ build/%.o: src/%.c
 	$(CC) -MMD -MP -MF $(<:src/%.c=deps/%.d) -MT $@ -c $(CFLAGS) -o $@ $<
 
 clean:
-	rm -r build
+	@rm -r build
+	@rm -r deps
