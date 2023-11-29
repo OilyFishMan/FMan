@@ -5,7 +5,7 @@ FILES   := $(shell find src -name "*.c")
 OBJECTS := $(FILES:src/%.c=build/%.o)
 DEPENDS := $(FILES:src/%.c=deps/%.d)
 
-LIBS    := -lm -ltinfo -lncurses
+LIBS    := -lncurses -ltinfo -lm
 WARN    := -Wall -Wextra -Werror
 OPT     ?= 0
 CFLAGS  := -Ilib -O$(OPT) $(WARN)
@@ -17,13 +17,14 @@ all: $(TARGET)
 build:
 	@mkdir -p build
 
-run: all
+deps:
+	@mkdir -p deps
+
+run: $(TARGET)
 	./$(TARGET)
 
-$(TARGET): build $(OBJECTS)
-	@if [[ -f $(TARGET) ]]; then\
-		rm $(TARGET);\
-	fi
+$(TARGET): build deps $(OBJECTS)
+	@if [[ -f $(TARGET) ]]; then rm $(TARGET); fi
 	$(CC) $(CFLAGS) $(LIBS) -o $(TARGET) $(OBJECTS)
 
 -include $(DEPENDS)
@@ -31,6 +32,6 @@ $(TARGET): build $(OBJECTS)
 build/%.o: src/%.c
 	$(CC) -MMD -MP -MF $(<:src/%.c=deps/%.d) -MT $@ -c $(CFLAGS) -o $@ $<
 
-clean:
+clean: build deps
 	@rm -r build
 	@rm -r deps
