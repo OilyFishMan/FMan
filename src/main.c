@@ -258,7 +258,7 @@ bool event_typing_mode(struct fman* fman, const int ch, char* error_message)
 bool event_editing_mode(struct fman* fman, const int ch, char* error_message)
 {
     switch (ch) {
-        case 27: {
+        case KEY_ESCAPE: {
             if (!editor_update(&fman->editor, error_message)) {
                 return false;
             }
