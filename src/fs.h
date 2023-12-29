@@ -41,7 +41,7 @@ struct fs
 };
 
 bool fs_init(struct fs* fs, char* error_message);
-void fs_dealloc(struct fs* fs);
+void fs_delete(struct fs* fs);
 
 bool fs_reload(struct fs* fs, char* error_message);
 bool fs_update(struct fs* fs, char* error_message);

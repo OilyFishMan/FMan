@@ -1,7 +1,9 @@
-#ifndef FIMALE_H_
-#define FIMALE_H_
+#ifndef FMAN_H_
+#define FMAN_H_
 
 #include "fs.h"
+#include "stupid_buffer.h"
+#include "editor.h"
 
 #include <stddef.h>
 #include <limits.h>
@@ -12,7 +14,8 @@ enum fman_mode
 {
     E_mode_stopped,
     E_mode_normal,
-    E_mode_typing
+    E_mode_typing,
+    E_mode_buffer_edit,
 };
 
 enum fman_command
@@ -40,7 +43,6 @@ struct fman
     enum fman_command command;
 
     char typing_text[PATH_MAX];
-
     char pattern[PATH_MAX];
 
     size_t pattern_matches_len;
@@ -51,10 +53,11 @@ struct fman
     struct fs fs;
 
     size_t cursor_y, scroll_y, match_cursor_y;
+    struct editor editor;
 };
 
 bool fman_init(struct fman* fman, char* error_message);
-void fman_dealloc(struct fman* fman);
+void fman_delete(struct fman* fman);
 
 #define fman_fs_window_height(fman) ((fman)->screen_height - 3)
 
@@ -73,4 +76,4 @@ bool fman_submit_command(struct fman* fman, char* error_message);
 
 bool fman_update(struct fman* fman, char* error_message);
 
-#endif // FIMALE_H_
+#endif // FMAN_H_

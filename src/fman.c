@@ -1,6 +1,7 @@
 #include "fman.h"
 #include "fs.h"
 #include "pattern.h"
+#include "editor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,12 +32,16 @@ bool fman_init(struct fman* fman, char* error_message)
     fman->match_cursor_y = 0;
     fman->scroll_y = 0;
 
+    if (!editor_init(&fman->editor, error_message)) {
+        return false;
+    }
+
     return true;
 }
 
-void fman_dealloc(struct fman* fman)
+void fman_delete(struct fman* fman)
 {
-    fs_dealloc(&fman->fs);
+    fs_delete(&fman->fs);
 }
 
 void fman_move_up(struct fman* fman)
@@ -96,19 +101,30 @@ bool fman_interact(struct fman* fman, char* error_message)
 
     struct fs_entry entry = fman->fs.entries[fman->pattern_matches[fman->match_cursor_y]];
 
-    if (entry.type != E_entry_folder) {
-        strcpy(error_message, "TODO: interacting with files is not implemented yet");
-        return false;
+    switch (entry.type) {
+        case E_entry_file: {
+            fman->mode = E_mode_buffer_edit;
+            char path[PATH_MAX] = {0};
+            strcat(path, fman->fs.path);
+            strcat(path, "/");
+            strcat(path, &fman->fs.path_arena[entry.path_idx]);
+
+            if (!editor_open(&fman->editor, path, error_message)) {
+                return false;
+            }
+            return true;
+        }
+
+        case E_entry_folder: {
+            if (!fs_chdir(&fman->fs, &fman->fs.path_arena[entry.path_idx], error_message)) {
+                return false;
+            }
+
+            fman->match_cursor_y = 0;
+            fman->scroll_y = 0;
+            return true;
+        }
     }
-
-    if (!fs_chdir(&fman->fs, &fman->fs.path_arena[entry.path_idx], error_message)) {
-        return false;
-    }
-
-    fman->match_cursor_y = 0;
-    fman->scroll_y = 0;
-
-    return true;
 }
 
 bool fman_go_back_dir(struct fman* fman, char* error_message)
@@ -120,9 +136,10 @@ bool fman_go_back_dir(struct fman* fman, char* error_message)
 
 void fman_begin_command(struct fman* fman, enum fman_command command)
 {
+    fman->mode = E_mode_typing;
+
     fman->typing_text[0] = '\0';
 
-    fman->mode = E_mode_typing;
     fman->command = command;
 }
 

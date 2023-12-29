@@ -45,7 +45,7 @@ failure:
     return false;
 }
 
-void fs_dealloc(struct fs* fs)
+void fs_delete(struct fs* fs)
 {
     // in case of a nasty allocation error we can't recover from.
     if (fs->path_arena != NULL) {

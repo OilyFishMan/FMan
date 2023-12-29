@@ -8,17 +8,28 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <curses.h>
+#include <unistd.h>
 #include <time.h>
+#include <math.h>
 
 #define KEY_ESCAPE 27
 #define MAX_FILE_NAME_DISPLAY 20
+
+double get_time(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (double) ts.tv_sec + 1e-9 * (double) ts.tv_nsec;
+}
+
+#define fixed_delta (1.0/60.0)
 
 void fman_public_update(struct fman* fman)
 {
     getmaxyx(stdscr, fman->screen_height, fman->screen_width);
 }
 
-void fman_render(struct fman* fman)
+void fman_render_fs(struct fman* fman)
 {
     const size_t fs_window_start = fman->screen_height - fman_fs_window_height(fman) - 1;
 
@@ -77,6 +88,79 @@ void fman_render(struct fman* fman)
         default: {
             break;
         }
+    }
+
+    refresh();
+}
+
+void fman_render_editor(struct fman* fman)
+{
+    erase();
+
+    size_t screen_top_offset = 0;
+    size_t line_begin = 0;
+
+    bool cursor_there = false;
+    size_t target_x = 0;
+    size_t target_y = 0;
+
+    const size_t first_line = fman->editor.screen_y;
+
+    for (size_t i = 0; i < first_line; ++i) {
+        if (buffer_findr_char(&fman->editor.buffer, '\n', line_begin, &line_begin)) {
+            ++line_begin;
+        } else {
+            line_begin = fman->editor.buffer.text_len;
+        }
+    }
+
+    for (size_t line = first_line; line_begin <= fman->editor.buffer.text_len && screen_top_offset < fman->screen_height; ++line) {
+        size_t line_end;
+
+        if (!buffer_findr_char(&fman->editor.buffer, '\n', line_begin, &line_end)) {
+            line_end = fman->editor.buffer.text_len;
+        }
+
+        mvprintw(screen_top_offset, 0, "%zu%*s ", line, ((int) log10(fman->screen_height + first_line) + 1) - (line == 0 ? 1 : (int)log10(line) + 1), "");
+
+        if (fman->editor.pos >= line_begin && fman->editor.pos <= (size_t) line_end) {
+            int x_pos;
+            int y_pos;
+            getyx(stdscr, y_pos, x_pos);
+            (void) y_pos;
+
+            size_t x = 0;
+            for (size_t i = line_begin; i < fman->editor.pos; ++i) {
+                if (fman->editor.buffer.text[i] == '\t') {
+                    x += 4;
+                } else {
+                    ++x;
+                }
+            }
+            target_x = x % fman->screen_width + (size_t) x_pos;
+            target_y = screen_top_offset + x / fman->screen_width;
+            cursor_there = true;
+        }
+
+        // because ncurses displays tabs weird, I have to do this
+        for (size_t i = line_begin; i < line_end; ++i) {
+            const char ch = fman->editor.buffer.text[i];
+            if (ch == '\t') {
+                printw("    ");
+            } else {
+                printw("%c", ch);
+            }
+        }
+
+        screen_top_offset += (line_end - line_begin) / fman->screen_width + 1;
+        line_begin = line_end + 1;
+    }
+
+    if (cursor_there) {
+        curs_set(1);
+        move(target_y, target_x);
+    } else {
+        curs_set(0);
     }
 
     refresh();
@@ -171,6 +255,58 @@ bool event_typing_mode(struct fman* fman, const int ch, char* error_message)
     return true;
 }
 
+bool event_editing_mode(struct fman* fman, const int ch, char* error_message)
+{
+    switch (ch) {
+        case 27: {
+            if (!editor_update(&fman->editor, error_message)) {
+                return false;
+            }
+
+            fman->mode = E_mode_normal;
+            break;
+        }
+
+        case KEY_UP: {
+            editor_move_up(&fman->editor);
+            break;
+        }
+
+        case KEY_DOWN: {
+            editor_move_down(&fman->editor, fman->screen_height);
+            break;
+        }
+
+        case KEY_LEFT: {
+            editor_move_left(&fman->editor);
+            break;
+        }
+
+        case KEY_RIGHT: {
+            editor_move_right(&fman->editor, fman->screen_height);
+            break;
+        }
+
+        case KEY_BACKSPACE: {
+            editor_backspace(&fman->editor);
+            break;
+        }
+
+        case ERR: {
+            break;
+        }
+
+        default: {
+            if (!editor_insert_char(&fman->editor, ch, error_message)) {
+                return false;
+            }
+            break;
+        }
+    }
+
+    return true;
+}
+
 int main(void)
 {
     char error_message[MAX_ERROR_MSG_LEN] = {0};
@@ -192,6 +328,8 @@ int main(void)
     }
 
     while (fman.mode != E_mode_stopped) {
+        const double start_time = get_time();
+
         fman_public_update(&fman);
 
         if (!fman_update(&fman, error_message)) {
@@ -199,7 +337,11 @@ int main(void)
             goto cleanup_fman;
         }
 
-        fman_render(&fman);
+        if (fman.mode == E_mode_buffer_edit) {
+            fman_render_editor(&fman);
+        } else {
+            fman_render_fs(&fman);
+        }
 
         int ch = getch();
 
@@ -220,14 +362,29 @@ int main(void)
                 break;
             }
 
+            case E_mode_buffer_edit: {
+                if (!event_editing_mode(&fman, ch, error_message)) {
+                    exit_success = false;
+                    goto cleanup_fman;
+                }
+                break;
+            }
+
             default: {
                 break;
             }
         }
+
+        const double end_time = get_time();
+        double delta = end_time - start_time;
+        if (delta < fixed_delta) {
+            usleep((fixed_delta - delta) * 1e+6);
+            delta = fixed_delta;
+        }
     }
 
 cleanup_fman:
-    fman_dealloc(&fman);
+    fman_delete(&fman);
 
 cleanup:
     endwin();

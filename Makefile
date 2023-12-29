@@ -1,4 +1,4 @@
-CC      = clang
+CC    := clang
 
 TARGET  := build/$(shell basename $(shell pwd))
 FILES   := $(shell find src -name "*.c")
@@ -18,7 +18,7 @@ build:
 	@mkdir -p build
 
 deps:
-	@mkdir -p deps
+	mkdir -p deps
 
 run: $(TARGET)
 	./$(TARGET)
