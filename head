@@ -1,0 +1,400 @@
+     1	#include "fman.h"
+     2	#include "fs.h"
+     3	
+     4	#define __STDC_WANT_LIB_EXT1__ 1
+     5	#include <stdio.h>
+     6	#include <stdlib.h>
+     7	#include <string.h>
+     8	#include <stdbool.h>
+     9	#include <limits.h>
+    10	#include <curses.h>
+    11	#include <unistd.h>
+    12	#include <time.h>
+    13	#include <math.h>
+    14	
+    15	#define KEY_ESCAPE 27
+    16	#define MAX_FILE_NAME_DISPLAY 20
+    17	
+    18	double get_time(void)
+    19	{
+    20	    struct timespec ts;
+    21	    clock_gettime(CLOCK_REALTIME, &ts);
+    22	    return (double) ts.tv_sec + 1e-9 * (double) ts.tv_nsec;
+    23	}
+    24	
+    25	#define fixed_delta (1.0/60.0)
+    26	
+    27	void fman_public_update(struct fman* fman)
+    28	{
+    29	    getmaxyx(stdscr, fman->screen_height, fman->screen_width);
+    30	}
+    31	
+    32	void fman_render_fs(struct fman* fman)
+    33	{
+    34	    const size_t fs_window_start = fman->screen_height - fman_fs_window_height(fman) - 1;
+    35	
+    36	    erase();
+    37	
+    38	    struct tm broken_up_time;
+    39	    char time_fmt[128]; // arbitrary
+    40	
+    41	    asctime_r(gmtime_r(&fman->fs.last_updated, &broken_up_time), time_fmt);
+    42	
+    43	    mvprintw(0, 0, "%s", fman->fs.path);
+    44	    mvprintw(1, 0, "%.*s", (int) (strlen(time_fmt) - 1), time_fmt);
+    45	
+    46	    for ( size_t i = 0
+    47	        ; i < fman_fs_window_height(fman) && i + fman->scroll_y < fman->pattern_matches_len
+    48	        ; ++i) {
+    49	        struct fs_entry* entry = &fman->fs.entries[fman->pattern_matches[i + fman->scroll_y]];
+    50	
+    51	        asctime_r(gmtime_r(&entry->last_updated, &broken_up_time), time_fmt);
+    52	
+    53	        const char* path_str = &fman->fs.path_arena[entry->path_idx];
+    54	        const char* folder_end = entry->type == E_entry_folder ? "/" : "";
+    55	        const char* dots = "..";
+    56	
+    57	        if (strlen(path_str) + strlen(folder_end) <= MAX_FILE_NAME_DISPLAY) {
+    58	            mvprintw((int) (i + fs_window_start), 0, "%s%s", path_str, folder_end);
+    59	        } else {
+    60	            mvprintw( (int) (i + fs_window_start), 0, "%.*s%s%s"
+    61	                    , (int) (MAX_FILE_NAME_DISPLAY - strlen(folder_end) - strlen(dots))
+    62	                    , path_str
+    63	                    , dots
+    64	                    , folder_end);
+    65	        }
+    66	
+    67	        mvprintw((int) (i + fs_window_start), MAX_FILE_NAME_DISPLAY + 1, "%s", time_fmt);
+    68	    }
+    69	
+    70	    for ( size_t j = fman->pattern_matches_len - fman->scroll_y
+    71	        ; j + fs_window_start < fman->screen_height - 1
+    72	        ; ++j) {
+    73	        mvprintw((int) (j + fs_window_start), 0, "~");
+    74	    }
+    75	
+    76	    switch (fman->mode) {
+    77	        case E_mode_normal: {
+    78	            mvprintw((int) (fman->screen_height - 1), 0, "-- PRESS ? TO SELECT COMMAND --");
+    79	            move(fman->match_cursor_y - fman->scroll_y + fs_window_start, 0);
+    80	            break;
+    81	        }
+    82	
+    83	        case E_mode_typing: {
+    84	            mvprintw((int) (fman->screen_height - 1), 0, "%s %s", command_string[fman->command], fman->typing_text);
+    85	            break;
+    86	        }
+    87	
+    88	        default: {
+    89	            break;
+    90	        }
+    91	    }
+    92	
+    93	    refresh();
+    94	}
+    95	
+    96	void fman_render_editor(struct fman* fman)
+    97	{
+    98	    erase();
+    99	
+   100	    size_t screen_top_offset = 0;
+   101	    size_t line_begin = 0;
+   102	
+   103	    bool cursor_there = false;
+   104	    size_t target_x = 0;
+   105	    size_t target_y = 0;
+   106	
+   107	    const size_t first_line = fman->editor.screen_y;
+   108	
+   109	    for (size_t i = 0; i < first_line; ++i) {
+   110	        if (buffer_findr_char(&fman->editor.buffer, '\n', line_begin, &line_begin)) {
+   111	            ++line_begin;
+   112	        } else {
+   113	            line_begin = fman->editor.buffer.text_len;
+   114	        }
+   115	    }
+   116	
+   117	    for (size_t line = first_line; line_begin <= fman->editor.buffer.text_len && screen_top_offset < fman->screen_height; ++line) {
+   118	        size_t line_end;
+   119	
+   120	        if (!buffer_findr_char(&fman->editor.buffer, '\n', line_begin, &line_end)) {
+   121	            line_end = fman->editor.buffer.text_len;
+   122	        }
+   123	
+   124	        mvprintw(screen_top_offset, 0, "%zu%*s ", line, ((int) log10(fman->screen_height + first_line) + 1) - (line == 0 ? 1 : (int)log10(line) + 1), "");
+   125	
+   126	        if (fman->editor.pos >= line_begin && fman->editor.pos <= (size_t) line_end) {
+   127	            int x_pos;
+   128	            int y_pos;
+   129	            getyx(stdscr, y_pos, x_pos);
+   130	            (void) y_pos;
+   131	
+   132	            size_t x = 0;
+   133	            for (size_t i = line_begin; i < fman->editor.pos; ++i) {
+   134	                if (fman->editor.buffer.text[i] == '\t') {
+   135	                    x += 4;
+   136	                } else {
+   137	                    ++x;
+   138	                }
+   139	            }
+   140	            target_x = x % fman->screen_width + (size_t) x_pos;
+   141	            target_y = screen_top_offset + x / fman->screen_width;
+   142	            cursor_there = true;
+   143	        }
+   144	
+   145	        // because ncurses displays tabs weird, I have to do this
+   146	        for (size_t i = line_begin; i < line_end; ++i) {
+   147	            const char ch = fman->editor.buffer.text[i];
+   148	            if (ch == '\t') {
+   149	                printw("    ");
+   150	            } else {
+   151	                printw("%c", ch);
+   152	            }
+   153	        }
+   154	
+   155	        screen_top_offset += (line_end - line_begin) / fman->screen_width + 1;
+   156	        line_begin = line_end + 1;
+   157	    }
+   158	
+   159	    if (cursor_there) {
+   160	        curs_set(1);
+   161	        move(target_y, target_x);
+   162	    } else {
+   163	        curs_set(0);
+   164	    }
+   165	
+   166	    refresh();
+   167	}
+   168	
+   169	bool event_normal_mode(struct fman* fman, const int ch, char* error_message)
+   170	{
+   171	    switch (ch) {
+   172	        case KEY_ESCAPE: {
+   173	            fman->mode = E_mode_stopped;
+   174	            break;
+   175	        }
+   176	
+   177	        case KEY_UP: {
+   178	            fman_move_up(fman);
+   179	            break;
+   180	        }
+   181	
+   182	        case KEY_DOWN: {
+   183	            fman_move_down(fman);
+   184	            break;
+   185	        }
+   186	
+   187	        case KEY_LEFT: {
+   188	            if (!fman_go_back_dir(fman, error_message)) {
+   189	                return false;
+   190	            }
+   191	
+   192	            break;
+   193	        }
+   194	
+   195	        case 'w': {
+   196	            fman_move_screen_up(fman);
+   197	            break;
+   198	        }
+   199	
+   200	        case 's': {
+   201	            fman_move_screen_down(fman);
+   202	            break;
+   203	        }
+   204	
+   205	        case '\n': {
+   206	            if (!fman_interact(fman, error_message)) {
+   207	                return false;
+   208	            }
+   209	            break;
+   210	        }
+   211	
+   212	        case '?': {
+   213	            fman_begin_command(fman, E_command_select_command);
+   214	            break;
+   215	        }
+   216	
+   217	        default: {
+   218	            break;
+   219	        }
+   220	    }
+   221	
+   222	    return true;
+   223	}
+   224	
+   225	bool event_typing_mode(struct fman* fman, const int ch, char* error_message)
+   226	{
+   227	    switch (ch) {
+   228	        case KEY_BACKSPACE: {
+   229	            fman_delete_char(fman);
+   230	            break;
+   231	        }
+   232	        
+   233	        case KEY_ESCAPE: {
+   234	            fman->mode = E_mode_normal;
+   235	            break;
+   236	        }
+   237	
+   238	        case '\n': {
+   239	            if (!fman_submit_command(fman, error_message)) {
+   240	                return false;
+   241	            }
+   242	            break;
+   243	        }
+   244	
+   245	        case ERR: {
+   246	            break;
+   247	        }
+   248	
+   249	        default: {
+   250	            fman_type_char(fman, ch);
+   251	            break;
+   252	        }
+   253	    }
+   254	
+   255	    return true;
+   256	}
+   257	
+   258	bool event_editing_mode(struct fman* fman, const int ch, char* error_message)
+   259	{
+   260	    switch (ch) {
+   261	        case KEY_ESCAPE: {
+   262	            if (!editor_update(&fman->editor, error_message)) {
+   263	                return false;
+   264	            }
+   265	
+   266	            fman->mode = E_mode_normal;
+   267	            break;
+   268	        }
+   269	
+   270	        case KEY_UP: {
+   271	            editor_move_up(&fman->editor);
+   272	            break;
+   273	        }
+   274	
+   275	        case KEY_DOWN: {
+   276	            editor_move_down(&fman->editor, fman->screen_height);
+   277	            break;
+   278	        }
+   279	
+   280	        case KEY_LEFT: {
+   281	            editor_move_left(&fman->editor);
+   282	            break;
+   283	        }
+   284	
+   285	        case KEY_RIGHT: {
+   286	            editor_move_right(&fman->editor, fman->screen_height);
+   287	            break;
+   288	        }
+   289	
+   290	        case KEY_BACKSPACE: {
+   291	            editor_backspace(&fman->editor);
+   292	            break;
+   293	        }
+   294	
+   295	        case ERR: {
+   296	            break;
+   297	        }
+   298	
+   299	        default: {
+   300	            if (!editor_insert_char(&fman->editor, ch, error_message)) {
+   301	                return false;
+   302	            }
+   303	            break;
+   304	        }
+   305	    }
+   306	
+   307	    return true;
+   308	}
+   309	
+   310	int main(void)
+   311	{
+   312	    char error_message[MAX_ERROR_MSG_LEN] = {0};
+   313	    bool exit_success = true;
+   314	
+   315	    initscr();
+   316	
+   317	    cbreak();
+   318	    noecho();
+   319	    keypad(stdscr, true);
+   320	    timeout(100);
+   321	    set_escdelay(0);
+   322	
+   323	    struct fman fman = {0};
+   324	
+   325	    if (!fman_init(&fman, error_message)) {
+   326	        exit_success = false;
+   327	        goto cleanup;
+   328	    }
+   329	
+   330	    while (fman.mode != E_mode_stopped) {
+   331	        const double start_time = get_time();
+   332	
+   333	        fman_public_update(&fman);
+   334	
+   335	        if (!fman_update(&fman, error_message)) {
+   336	            exit_success = false;
+   337	            goto cleanup_fman;
+   338	        }
+   339	
+   340	        if (fman.mode == E_mode_buffer_edit) {
+   341	            fman_render_editor(&fman);
+   342	        } else {
+   343	            fman_render_fs(&fman);
+   344	        }
+   345	
+   346	        int ch = getch();
+   347	
+   348	        switch (fman.mode) {
+   349	            case E_mode_normal: {
+   350	                if (!event_normal_mode(&fman, ch, error_message)) {
+   351	                    exit_success = false;
+   352	                    goto cleanup_fman;
+   353	                }
+   354	                break;
+   355	            }
+   356	
+   357	            case E_mode_typing: {
+   358	                if (!event_typing_mode(&fman, ch, error_message)) {
+   359	                    exit_success = false;
+   360	                    goto cleanup_fman;
+   361	                }
+   362	                break;
+   363	            }
+   364	
+   365	            case E_mode_buffer_edit: {
+   366	                if (!event_editing_mode(&fman, ch, error_message)) {
+   367	                    exit_success = false;
+   368	                    goto cleanup_fman;
+   369	                }
+   370	                break;
+   371	            }
+   372	
+   373	            default: {
+   374	                break;
+   375	            }
+   376	        }
+   377	
+   378	        const double end_time = get_time();
+   379	        double delta = end_time - start_time;
+   380	        if (delta < fixed_delta) {
+   381	            usleep((fixed_delta - delta) * 1e+6);
+   382	            delta = fixed_delta;
+   383	        }
+   384	    }
+   385	
+   386	cleanup_fman:
+   387	    fman_delete(&fman);
+   388	
+   389	cleanup:
+   390	    endwin();
+   391	
+   392	    if (exit_success) {
+   393	        fprintf(stderr, "the program exited successfully.\n");
+   394	
+   395	        return EXIT_SUCCESS;
+   396	    }
+   397	
+   398	    fprintf(stderr, "the program crashed:\t`%s`\n", error_message);
+   399	    return EXIT_FAILURE;
+   400	}
